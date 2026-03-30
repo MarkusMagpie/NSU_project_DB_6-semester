@@ -2,20 +2,20 @@ CREATE SCHEMA IF NOT EXISTS lab_drug_store;
 
 SET search_path TO lab_drug_store;
 
-DROP TABLE IF EXISTS Рецептуры CASCADE;
-DROP TABLE IF EXISTS Технологические_карты CASCADE;
-DROP TABLE IF EXISTS Изготавливаемые_лекарства CASCADE;
-DROP TABLE IF EXISTS Готовые_лекарства CASCADE;
-DROP TABLE IF EXISTS Лекарства CASCADE;
-DROP TABLE IF EXISTS Заказы CASCADE;
-DROP TABLE IF EXISTS Рецепты CASCADE;
-DROP TABLE IF EXISTS Больные_клиенты CASCADE;
-DROP TABLE IF EXISTS Партии_компонентов CASCADE;
-DROP TABLE IF EXISTS Заявки_на_пополнение_компонентов CASCADE;
-DROP TABLE IF EXISTS Заявки_на_пополнение_готовых_лекарств CASCADE;
-DROP TABLE IF EXISTS Компоненты CASCADE;
-DROP TABLE IF EXISTS Поставщики CASCADE;
-DROP TABLE IF EXISTS Резерв_компонентов CASCADE;
+-- DROP TABLE IF EXISTS Рецептуры CASCADE;
+-- DROP TABLE IF EXISTS Технологические_карты CASCADE;
+-- DROP TABLE IF EXISTS Изготавливаемые_лекарства CASCADE;
+-- DROP TABLE IF EXISTS Готовые_лекарства CASCADE;
+-- DROP TABLE IF EXISTS Лекарства CASCADE;
+-- DROP TABLE IF EXISTS Заказы CASCADE;
+-- DROP TABLE IF EXISTS Рецепты CASCADE;
+-- DROP TABLE IF EXISTS Больные_клиенты CASCADE;
+-- DROP TABLE IF EXISTS Партии_компонентов CASCADE;
+-- DROP TABLE IF EXISTS Заявки_на_пополнение_компонентов CASCADE;
+-- DROP TABLE IF EXISTS Заявки_на_пополнение_готовых_лекарств CASCADE;
+-- DROP TABLE IF EXISTS Компоненты CASCADE;
+-- DROP TABLE IF EXISTS Поставщики CASCADE;
+-- DROP TABLE IF EXISTS Резерв_компонентов CASCADE;
 
 
 
@@ -146,10 +146,14 @@ CREATE TABLE IF NOT EXISTS Заказы (
     Цена DECIMAL(10,2) NOT NULL,
 
     Medicine_id INT NOT NULL,
+    Prescription_id INT NOT NULL,
 
     CONSTRAINT FK_medicine_id FOREIGN KEY (Medicine_id)
         REFERENCES Лекарства(Medicine_id)
         ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT FK_prescription_id FOREIGN KEY (Prescription_id)
+        REFERENCES Рецепты(Prescription_id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT check_price CHECK (Цена > 0),
     CONSTRAINT check_date CHECK (Дата_создания <= CURRENT_TIMESTAMP),
     CONSTRAINT check_status CHECK (Статус IN ('ожидание компонентов', 'готов к производству',
@@ -220,7 +224,7 @@ CREATE OR REPLACE TRIGGER trg_auto_set_completion_time
 CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
     DECLARE
         med_type VARCHAR;
-        technology_id INT;
+        v_technology_id INT;
         component RECORD;
         reserved_amount DECIMAL;
     BEGIN
@@ -231,11 +235,11 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
 
             IF med_type = 'изготавливаемое' THEN
                 -- получаю тех карту
-                SELECT Technology_id INTO technology_id
-                                     FROM Технологические_карты
-                                     WHERE Medicine_id = NEW.Medicine_id;
+                SELECT Technology_id INTO v_technology_id
+                FROM Технологические_карты
+                WHERE Medicine_id = NEW.Medicine_id;
 
-                IF technology_id IS NULL THEN
+                IF v_technology_id IS NULL THEN
                     RAISE EXCEPTION 'Exception! Для изготавливаемого лекарства % не найдена технологическая карта', NEW.Medicine_id;
                 END IF;
 
@@ -243,13 +247,13 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
                 FOR component IN
                     SELECT r.Компоненты AS component_id, r.Количество AS required_amount
                     FROM Рецептуры r
-                    WHERE r.Технологическая_карта = technology_id
+                    WHERE r.Технологическая_карта = v_technology_id
 
                     LOOP
                     -- сумма зарезервированных компонентов для данного заказа
                     SELECT COALESCE(SUM(quantity_reserved), 0) INTO reserved_amount
-                                                               FROM Резерв_компонентов
-                                                               WHERE order_id = NEW.Order_id AND component_id = component.component_id;
+                    FROM Резерв_компонентов
+                    WHERE order_id = NEW.Order_id AND component_id = component.component_id;
 
                     IF reserved_amount < component.required_amount THEN
                         RAISE EXCEPTION 'Exception! Недостаточно зарезервировано компонента %: требуется %, зарезервировано %',
@@ -265,64 +269,65 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_check_reserved_components
     BEFORE UPDATE ON Заказы
-                         FOR EACH ROW
-                         EXECUTE FUNCTION check_reserved_components();
+    FOR EACH ROW
+    EXECUTE FUNCTION check_reserved_components();
 
 -- списывает зарезервированные компоненты со склада в момент когда заказ переходит в производство
 CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
-DECLARE
-reservation RECORD; -- запись из Резерв_компонентов
-    batch RECORD; -- из Партии_компонентов
-    remaining DECIMAL; -- сколько еще нужно списать
-BEGIN
-    IF NEW.Статус = 'в производстве' AND OLD.Статус != 'в производстве' THEN
-        FOR reservation IN
-SELECT component_id, quantity_reserved
-FROM Резерв_компонентов
-WHERE order_id = NEW.Order_id
+    DECLARE
+        reservation RECORD; -- запись из Резерв_компонентов
+        batch RECORD; -- из Партии_компонентов
+        remaining DECIMAL; -- сколько еще нужно списать
+    BEGIN
+        IF NEW.Статус = 'в производстве' AND OLD.Статус != 'в производстве' THEN
+            FOR reservation IN
+                SELECT component_id, quantity_reserved
+                FROM Резерв_компонентов
+                WHERE order_id = NEW.Order_id
 
-    LOOP
-                remaining := reservation.quantity_reserved;
+                LOOP
+                    remaining := reservation.quantity_reserved;
 
--- поиск партии этого компонента
-FOR batch IN
-SELECT batch_id, Quantity
-FROM Партии_компонентов
-WHERE component_id = reservation.component_id AND Quantity > 0
-ORDER BY receipt_date
+                    -- поиск партии этого компонента
+                    FOR batch IN
+                        SELECT batch_id, Quantity
+                        FROM Партии_компонентов
+                        WHERE component_id = reservation.component_id AND Quantity > 0
+                        ORDER BY receipt_date
 
-    LOOP
-                        IF remaining <= 0 THEN
-                            EXIT; -- все списано -> выход из цикла партий
-END IF;
+                        LOOP
+                            IF remaining <= 0 THEN
+                                EXIT; -- все списано -> выход из цикла партий
+                            END IF;
 
-                        IF batch.Quantity >= remaining THEN
-                            -- партия покрывает остаток
-UPDATE Партии_компонентов
-SET Quantity = Quantity - remaining
-WHERE batch_id = batch.batch_id;
-remaining := 0;
-ELSE
-                            -- списать всю партию
-UPDATE Партии_компонентов
-SET Quantity = 0
-WHERE batch_id = batch.batch_id;
-remaining := remaining - batch.Quantity;
-END IF;
-END LOOP;
+                            IF batch.Quantity >= remaining THEN
+                                -- партия покрывает остаток
+                                UPDATE Партии_компонентов
+                                SET Quantity = Quantity - remaining
+                                WHERE batch_id = batch.batch_id;
+                                remaining := 0;
+                            ELSE
+                                -- списать всю партию
+                                UPDATE Партии_компонентов
+                                SET Quantity = 0
+                                WHERE batch_id = batch.batch_id;
+                                remaining := remaining - batch.Quantity;
+                            END IF;
+                        END LOOP;
 
-                -- после перебора всех партий осталось несписанное количество
-                IF remaining > 0 THEN
-                    RAISE EXCEPTION 'Exception! Не хватает компонента % на складе', reservation.component_id;
-END IF;
-END LOOP;
+                    -- после перебора всех партий осталось несписанное количество
+                    IF remaining > 0 THEN
+                        RAISE EXCEPTION 'Exception! Не хватает компонента % на складе', reservation.component_id;
+                    END IF;
 
-        -- после успешного списания удаляю резервы по заказу
-DELETE FROM Резерв_компонентов WHERE order_id = NEW.Order_id;
-END IF;
+                END LOOP;
 
-RETURN NEW;
-END;
+            -- после успешного списания удаляю резервы по заказу
+            DELETE FROM Резерв_компонентов WHERE order_id = NEW.Order_id;
+        END IF;
+
+        RETURN NEW;
+    END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_consume_reserved_components
@@ -331,51 +336,49 @@ CREATE OR REPLACE TRIGGER trg_consume_reserved_components
     EXECUTE FUNCTION consume_reserved_components();
 
 CREATE OR REPLACE FUNCTION auto_reserve_components() RETURNS TRIGGER AS $$
-DECLARE
-med_type VARCHAR;
-    v_technology_id INT;
-    component RECORD;
-    available_amount DECIMAL;
-BEGIN
-SELECT Тип INTO med_type FROM Лекарства WHERE Medicine_id = NEW.Medicine_id;
-IF med_type = 'изготавливаемое' THEN
-SELECT Technology_id INTO v_technology_id
-FROM Технологические_карты
-WHERE Medicine_id = NEW.Medicine_id;
+    DECLARE
+        med_type VARCHAR;
+        v_technology_id INT;
+        component RECORD;
+    BEGIN
+        SELECT Тип INTO med_type FROM Лекарства WHERE Medicine_id = NEW.Medicine_id;
 
-FOR component IN
-SELECT r.Компоненты AS component_id, r.Количество AS required
-FROM Рецептуры r
-WHERE r.Технологическая_карта = v_technology_id
+        IF med_type = 'изготавливаемое' THEN
+            SELECT Technology_id INTO v_technology_id
+            FROM Технологические_карты
+            WHERE Medicine_id = NEW.Medicine_id;
 
-    LOOP
-SELECT COALESCE(SUM(Quantity), 0) INTO available_amount
-FROM Партии_компонентов
-WHERE Component_id = component.component_id;
+--             FOR component IN
+--                 SELECT r.Компоненты AS component_id, r.Количество AS required
+--                 FROM Рецептуры r
+--                 WHERE r.Технологическая_карта = v_technology_id
+--
+--                 LOOP
+--                     SELECT COALESCE(SUM(Quantity), 0) INTO available_amount
+--                                                       FROM Партии_компонентов
+--                                                       WHERE Component_id = component.component_id;
+--
+--                     IF available_amount < component.required THEN
+--                         RAISE EXCEPTION 'Exception! Недостаточно компонента %: требуется %, доступно %',
+--                             component.component_id, component.required, available_amount;
+--                     END IF;
+--                 END LOOP;
 
-IF available_amount < component.required THEN
-                    RAISE EXCEPTION 'Exception! Недостаточно компонента %: требуется %, доступно %',
-                        component.component_id, component.required, available_amount;
-END IF;
-END LOOP;
+            -- создание резервов компоенентов
+            FOR component IN
+                SELECT r.Компоненты AS component_id, r.Количество AS required
+                FROM Рецептуры r
+                WHERE r.Технологическая_карта = v_technology_id
 
-        -- создание резервов компоенентов
-FOR component IN
-SELECT r.Компоненты AS component_id, r.Количество AS required
-FROM Рецептуры r
-WHERE r.Технологическая_карта = v_technology_id
+                LOOP
+                    INSERT INTO Резерв_компонентов (order_id, component_id, quantity_reserved)
+                    VALUES (NEW.Order_id, component.component_id, component.required);
+                END LOOP;
+        END IF;
 
-    LOOP
-INSERT INTO Резерв_компонентов (order_id, component_id, quantity_reserved)
-VALUES (NEW.Order_id, component.component_id, component.required);
-END LOOP;
-END IF;
-
-RETURN NEW;
-END;
+        RETURN NEW;
+    END;
 $$ LANGUAGE plpgsql;
-
--- DROP TRIGGER IF EXISTS trg_auto_reserve_components ON Заказы;
 
 CREATE OR REPLACE TRIGGER trg_auto_reserve_components
     AFTER INSERT ON Заказы
@@ -472,33 +475,33 @@ CREATE TABLE IF NOT EXISTS Изготавливаемые_лекарства (
 
 CREATE OR REPLACE FUNCTION check_application_method_consistency()
     RETURNS TRIGGER AS $$
-DECLARE
-app_method VARCHAR;
-BEGIN
-SELECT Способ_применения INTO app_method
-FROM Лекарства
-WHERE Medicine_id = NEW.Medicine_id;
+    DECLARE
+        app_method VARCHAR;
+    BEGIN
+        SELECT Способ_применения INTO app_method
+                                 FROM Лекарства
+                                 WHERE Medicine_id = NEW.Medicine_id;
 
-IF app_method IS NULL THEN
-        RAISE EXCEPTION 'Exception! Лекарство с идентификатором % не существует', NEW.Medicine_id;
-END IF;
+        IF app_method IS NULL THEN
+            RAISE EXCEPTION 'Exception! Лекарство с идентификатором % не существует', NEW.Medicine_id;
+        END IF;
 
-    IF NEW.Тип_препарата IN ('микстура', 'порошок') AND app_method != 'внутреннее' THEN
-        RAISE EXCEPTION 'Exception! Для препарата типа "%" способ применения должен быть "внутреннее", а указан "%"',
-            NEW.Тип_препарата, app_method;
-END IF;
+        IF NEW.Тип_препарата IN ('микстура', 'порошок') AND app_method != 'внутреннее' THEN
+            RAISE EXCEPTION 'Exception! Для препарата типа "%" способ применения должен быть "внутреннее", а указан "%"',
+                NEW.Тип_препарата, app_method;
+        END IF;
 
-    IF NEW.Тип_препарата = 'мазь' AND app_method != 'наружное' THEN
-        RAISE EXCEPTION 'Exception! Для мази способ применения должен быть "наружное", а указан "%"', app_method;
-END IF;
+        IF NEW.Тип_препарата = 'мазь' AND app_method != 'наружное' THEN
+            RAISE EXCEPTION 'Exception! Для мази способ применения должен быть "наружное", а указан "%"', app_method;
+        END IF;
 
-    IF NEW.Тип_препарата = 'раствор' AND app_method NOT IN ('внутреннее', 'наружное', 'для смешивания') THEN
-        RAISE EXCEPTION 'Exception! Для раствора способ применения должен быть одним из: внутреннее, наружное, для смешивания, а указан "%"',
-            app_method;
-END IF;
+        IF NEW.Тип_препарата = 'раствор' AND app_method NOT IN ('внутреннее', 'наружное', 'для смешивания') THEN
+            RAISE EXCEPTION 'Exception! Для раствора способ применения должен быть одним из: внутреннее, наружное, для смешивания, а указан "%"',
+                app_method;
+        END IF;
 
-RETURN NEW;
-END;
+        RETURN NEW;
+    END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_check_application_method_consistency
@@ -541,35 +544,35 @@ CREATE TABLE IF NOT EXISTS Партии_компонентов (
 );
 
 CREATE OR REPLACE FUNCTION check_critical_level() RETURNS TRIGGER AS $$
-DECLARE
-total_quantity DECIMAL;
-    critical DECIMAL;
-    existing_request INT;
-BEGIN
-    -- общее количество компонента
-SELECT COALESCE(SUM(Quantity), 0) INTO total_quantity
-FROM Партии_компонентов
-WHERE Component_id = NEW.Component_id;
+    DECLARE
+        total_quantity DECIMAL;
+        critical DECIMAL;
+        existing_request INT;
+    BEGIN
+        -- общее количество компонента
+        SELECT COALESCE(SUM(Quantity), 0) INTO total_quantity
+        FROM Партии_компонентов
+        WHERE Component_id = NEW.Component_id;
 
-SELECT Critical_level INTO critical
-FROM Компоненты
-WHERE Component_id = NEW.Component_id;
+        SELECT Critical_level INTO critical
+                              FROM Компоненты
+                              WHERE Component_id = NEW.Component_id;
 
-IF total_quantity <= critical THEN
-        -- триггер может создавать несколько заявок если остаток долго находится ниже critical_level
-SELECT Component_request_id INTO existing_request
-FROM Заявки_на_пополнение_компонентов
-WHERE Component_id = NEW.Component_id AND Status IN ('новая', 'отправлена')
-    LIMIT 1;
+        IF total_quantity <= critical THEN
+            -- триггер может создавать несколько заявок если остаток долго находится ниже critical_level
+            SELECT Component_request_id INTO existing_request
+            FROM Заявки_на_пополнение_компонентов
+            WHERE Component_id = NEW.Component_id AND Status IN ('новая', 'отправлена')
+            LIMIT 1;
 
-IF existing_request IS NULL THEN
-            INSERT INTO Заявки_на_пополнение_компонентов (Component_id, Quantity, Status, Supplier_id)
-            VALUES (NEW.Component_id, critical * 2, 'новая', 1);
-END IF;
-END IF;
+            IF existing_request IS NULL THEN
+                INSERT INTO Заявки_на_пополнение_компонентов (Component_id, Quantity, Status, Supplier_id)
+                VALUES (NEW.Component_id, critical * 2, 'новая', 1);
+            END IF;
+        END IF;
 
-RETURN NEW;
-END;
+        RETURN NEW;
+    END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_check_critical_level
@@ -581,42 +584,41 @@ CREATE OR REPLACE TRIGGER trg_check_critical_level
 -- есть ли заказы в статусе 'ожидание компонентов', которые теперь могут быть выполнены,
 -- перевожу их в 'готов к производству'
 CREATE OR REPLACE FUNCTION update_waiting_orders() RETURNS TRIGGER AS $$
-DECLARE
-order_rec RECORD;
-BEGIN
-    -- для каждого заказа в 'ожидании компонентов' который включает этот компонент
-FOR order_rec IN
-SELECT DISTINCT o.Order_id, t.Technology_id
-FROM Заказы AS o
-         JOIN Лекарства AS l ON o.Medicine_id = l.Medicine_id
-         JOIN Технологические_карты AS t ON l.Medicine_id = t.Medicine_id
-WHERE o.Статус = 'ожидание компонентов' AND EXISTS (
-    SELECT 1 FROM Рецептуры AS r
-    -- в рецептуре r этого заказа o есть компонент который только что поступил
-    WHERE r.Технологическая_карта = t.Technology_id
-      AND r.Компоненты = NEW.Component_id
-)
+    DECLARE
+        order_rec RECORD;
+    BEGIN
+        -- для каждого заказа в 'ожидании компонентов' который включает этот компонент
+        FOR order_rec IN
+            SELECT DISTINCT o.Order_id, t.Technology_id
+            FROM Заказы AS o
+                JOIN Лекарства AS l ON o.Medicine_id = l.Medicine_id
+                JOIN Технологические_карты AS t ON l.Medicine_id = t.Medicine_id
+            WHERE o.Статус = 'ожидание компонентов' AND EXISTS (
+                SELECT 1 FROM Рецептуры AS r
+                -- в рецептуре r этого заказа o есть компонент который только что поступил
+                WHERE r.Технологическая_карта = t.Technology_id AND r.Компоненты = NEW.Component_id
+            )
 
-    LOOP
-            -- у каждого найденного заказа: все ли его компоненты теперь доступны?
-            -- <=> нет ни одного компонента в рецептуре для которого не существует партии с >0 количеством
-            IF NOT EXISTS (
-                SELECT 1
-                FROM Рецептуры r
-                WHERE r.Технологическая_карта = order_rec.Technology_id
-                  -- нет ли хотя бы одной партия с положительным остатком для конкретного компонента?
-                  AND NOT EXISTS (
+            LOOP
+                -- у каждого найденного заказа: все ли его компоненты теперь доступны?
+                -- <=> нет ни одного компонента в рецептуре для которого не существует партии с >0 количеством
+                IF NOT EXISTS (
                     SELECT 1
-                    FROM Партии_компонентов p
-                    WHERE p.Component_id = r.Компоненты AND p.Quantity > 0
-                )
-            ) THEN
-UPDATE Заказы SET Статус = 'готов к производству' WHERE Order_id = order_rec.Order_id;
-END IF;
-END LOOP;
+                    FROM Рецептуры r
+                    WHERE r.Технологическая_карта = order_rec.Technology_id
+                      -- нет ли хотя бы одной партия с положительным остатком для конкретного компонента?
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM Партии_компонентов p
+                        WHERE p.Component_id = r.Компоненты AND p.Quantity > 0
+                    )
+                ) THEN
+                    UPDATE Заказы SET Статус = 'готов к производству' WHERE Order_id = order_rec.Order_id;
+                END IF;
+            END LOOP;
 
-RETURN NEW;
-END;
+        RETURN NEW;
+    END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE TRIGGER trg_update_waiting_orders
