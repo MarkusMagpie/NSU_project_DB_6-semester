@@ -385,6 +385,29 @@ CREATE OR REPLACE TRIGGER trg_auto_reserve_components
     FOR EACH ROW
     EXECUTE FUNCTION auto_reserve_components();
 
+CREATE OR REPLACE FUNCTION consume_ready_medicine() RETURNS TRIGGER AS $$
+    DECLARE
+        med_type VARCHAR;
+    BEGIN
+        SELECT Тип INTO med_type
+        FROM Лекарства
+        WHERE Medicine_id = NEW.Medicine_id;
+
+        IF med_type = 'готовое' AND NEW.Статус = 'выполнен' AND OLD.Статус != 'выполнен' THEN
+            UPDATE Готовые_лекарства
+            SET Остаток = Остаток - 1   -- пока что заказ всегда уменьшается на 1 единицу
+            WHERE Medicine_id = NEW.Medicine_id;
+        END IF;
+
+        RETURN NEW;
+    END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_consume_ready_medicine
+    AFTER UPDATE ON Заказы
+    FOR EACH ROW
+    EXECUTE FUNCTION consume_ready_medicine();
+
 
 
 CREATE TABLE IF NOT EXISTS Поставщики (
@@ -432,6 +455,7 @@ CREATE TABLE IF NOT EXISTS Готовые_лекарства (
     Medicine_id INT PRIMARY KEY,
     Производитель VARCHAR(200) NOT NULL,
     Форма_выпуска VARCHAR(100) NOT NULL,
+    Остаток DECIMAL(10,2) NOT NULL DEFAULT 0,
 
     CONSTRAINT FK_ready_medicine FOREIGN KEY (Medicine_id)
         REFERENCES Лекарства(Medicine_id)
@@ -458,6 +482,24 @@ CREATE TABLE IF NOT EXISTS Заявки_на_пополнение_готовых
         (Status IN ('новая','отправлена', 'получена'))
 );
 
+CREATE OR REPLACE FUNCTION update_ready_medicine_stock()
+    RETURNS TRIGGER AS $$
+    BEGIN
+        IF NEW.Status = 'получена' AND (OLD.Status IS NULL OR OLD.Status != 'получена') THEN
+            UPDATE Готовые_лекарства
+            SET Остаток = Остаток + NEW.Quantity
+            WHERE Medicine_id = NEW.Medicine_id;
+        END IF;
+
+        RETURN NEW;
+    END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_ready_medicine_stock
+    AFTER INSERT OR UPDATE ON Заявки_на_пополнение_готовых_лекарств
+    FOR EACH ROW
+    EXECUTE FUNCTION update_ready_medicine_stock();
+
 
 
 CREATE TABLE IF NOT EXISTS Изготавливаемые_лекарства (
@@ -479,8 +521,8 @@ CREATE OR REPLACE FUNCTION check_application_method_consistency()
         app_method VARCHAR;
     BEGIN
         SELECT Способ_применения INTO app_method
-                                 FROM Лекарства
-                                 WHERE Medicine_id = NEW.Medicine_id;
+        FROM Лекарства
+        WHERE Medicine_id = NEW.Medicine_id;
 
         IF app_method IS NULL THEN
             RAISE EXCEPTION 'Exception! Лекарство с идентификатором % не существует', NEW.Medicine_id;

@@ -179,3 +179,37 @@ FROM "Лекарства" AS l
          JOIN component_stock AS cs ON c.Component_id = cs.Component_id
 WHERE cs.Current_quantity <= c.Critical_level
 ORDER BY "Название";
+
+
+
+-- 7.	Получить перечень лекарств с минимальным запасом на складе в целом и по указанной категории медикаментов.
+WITH component_sum AS (
+    SELECT
+        Component_id,
+        COALESCE(SUM(Quantity), 0) AS total_quantity
+    FROM "Партии_компонентов"
+    GROUP BY Component_id
+),
+     all_stock AS (
+         SELECT
+             l.Medicine_id as med_id,
+             MIN(FLOOR(cs.total_quantity / r.Количество)) AS maximum_of_units
+         FROM "Лекарства" AS l
+                  JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+                  JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+                  JOIN component_sum as cs ON r."Компоненты" = cs.Component_id
+         WHERE l."Тип" = 'изготавливаемое'
+         GROUP BY l.Medicine_id
+     )
+SELECT
+    l.Medicine_id AS ID_лекарства,
+    l."Название" AS Лекарство,
+    l."Тип" AS Тип,
+    CASE
+        WHEN l."Тип" = 'готовое' THEN g."Остаток"
+        ELSE COALESCE(cs.maximum_of_units, 0)
+        END AS "Запас на складе, ед."
+FROM "Лекарства" AS l
+         LEFT JOIN "Готовые_лекарства" AS g ON l.Medicine_id = g.Medicine_id
+         LEFT JOIN all_stock AS cs ON l.Medicine_id = cs.med_id
+ORDER BY "Запас на складе, ед.";
