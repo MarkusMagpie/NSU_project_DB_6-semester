@@ -555,8 +555,8 @@ CREATE OR REPLACE FUNCTION check_critical_level() RETURNS TRIGGER AS $$
         WHERE Component_id = NEW.Component_id;
 
         SELECT Critical_level INTO critical
-                              FROM Компоненты
-                              WHERE Component_id = NEW.Component_id;
+        FROM Компоненты
+        WHERE Component_id = NEW.Component_id;
 
         IF total_quantity <= critical THEN
             -- триггер может создавать несколько заявок если остаток долго находится ниже critical_level

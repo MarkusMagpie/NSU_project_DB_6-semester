@@ -18,7 +18,7 @@ TRUNCATE TABLE
     RESTART IDENTITY CASCADE;
 
 
--- 1 Получить сведения о покупателях, которые не пришли забрать свой заказ в назначенное им время и общее их число.
+
 INSERT INTO "Поставщики" (Supplier_id, Full_name, Phone, Email)
 VALUES
     (1, 'Поставщик 1', '+88005553535', 'info@ferma.ru');
@@ -48,26 +48,30 @@ VALUES (1, CURRENT_TIMESTAMP - INTERVAL '3 hours', 'готов к выдаче',
         CURRENT_TIMESTAMP - INTERVAL '2 hours', 150.00, 1, 1),
        (2, CURRENT_TIMESTAMP - INTERVAL '30 minutes', 'готов к выдаче',
         CURRENT_TIMESTAMP - INTERVAL '10 minutes', 150.00, 1, 1);
+
+
+
+-- 1 Получить сведения о покупателях, которые не пришли забрать свой заказ в назначенное им время и общее их число.
 SELECT
     bc.Client_id AS ID_клиента,
-    bc.ФИО AS ФИО,
-    bc.Телефон AS Телефон,
-    bc.Адрес AS Адрес,
+    bc."ФИО" AS ФИО,
+    bc."Телефон" AS Телефон,
+    bc."Адрес" AS Адрес,
     o.Order_id AS Номер_заказа,
-    o.Время_изготовления AS Время_готовности,
-    CURRENT_TIMESTAMP - o.Время_изготовления AS Просрочка -- разница между текущем временем и временем изготовления деарства
+    o."Время_изготовления" AS Время_готовности,
+    CURRENT_TIMESTAMP - o."Время_изготовления" AS Просрочка -- разница между текущем временем и временем изготовления деарства
 FROM "Заказы" AS o
     JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
     JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-WHERE o.Статус = 'готов к выдаче'
-  AND o.Время_изготовления IS NOT NULL
-  AND o.Время_изготовления < CURRENT_TIMESTAMP - INTERVAL '1 hour' -- заказы готовы более часа назад
-ORDER BY o.Время_изготовления;
+WHERE o."Статус" = 'готов к выдаче'
+  AND o."Время_изготовления" IS NOT NULL
+  AND o."Время_изготовления" < CURRENT_TIMESTAMP - INTERVAL '1 hour' -- заказы готовы более часа назад
+ORDER BY o."Время_изготовления";
 
 -- общее количество таких заказов
 SELECT COUNT(*) AS Не_забрали_заказы
 FROM "Заказы" AS o
     JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-WHERE o.Статус = 'готов к выдаче'
-  AND o.Время_изготовления IS NOT NULL
-  AND o.Время_изготовления < CURRENT_TIMESTAMP - INTERVAL '1 hour';
+WHERE o."Статус" = 'готов к выдаче'
+  AND o."Время_изготовления" IS NOT NULL
+  AND o."Время_изготовления" < CURRENT_TIMESTAMP - INTERVAL '1 hour';

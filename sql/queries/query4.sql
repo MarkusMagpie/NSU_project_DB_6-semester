@@ -17,6 +17,8 @@ TRUNCATE TABLE
     "Резерв_компонентов"
     RESTART IDENTITY CASCADE;
 
+
+
 INSERT INTO "Поставщики" (Supplier_id, Full_name, Phone, Email)
 VALUES (1, 'Поставщик А', '+70000000000', 'a@pharm.ru');
 
@@ -90,16 +92,18 @@ VALUES
     (1, 3, 30.0), -- сироп глюкозы
     (2, 4, 50.0); -- ланолин (хз что это)
 
+
+
 -- 4.	Получить какой объем указанных веществ использован за указанный период.
 SELECT
     c.Component_id AS ID_компонента,
     c.Name AS Компонент,
     SUM(r.quantity_reserved) AS Использовано
 FROM "Резерв_компонентов" AS r
-    JOIN Заказы AS o ON r.order_id = o.Order_id
-    JOIN Компоненты AS c ON r.component_id = c.Component_id
-WHERE o.Статус IN ('выполнен', 'в производстве')
-  AND o.Дата_создания BETWEEN '2025-03-01' AND '2025-03-31'
+    JOIN "Заказы" AS o ON r.order_id = o.Order_id
+    JOIN "Компоненты" AS c ON r.component_id = c.Component_id
+WHERE o."Статус" IN ('выполнен', 'в производстве')
+  AND o."Дата_создания" BETWEEN '2025-03-01' AND '2025-03-31'
 GROUP BY c.Component_id, c.Name
 ORDER BY Использовано DESC;
 
@@ -107,5 +111,5 @@ ORDER BY Использовано DESC;
 SELECT COALESCE(SUM(r.quantity_reserved), 0) AS Общий_объем
 FROM "Резерв_компонентов" AS r
     JOIN "Заказы" AS o ON r.order_id = o.Order_id
-WHERE o.Статус IN ('выполнен', 'в производстве')
-  AND o.Дата_создания BETWEEN '2025-03-01' AND '2025-03-31';
+WHERE o."Статус" IN ('выполнен', 'в производстве')
+  AND o."Дата_создания" BETWEEN '2025-03-01' AND '2025-03-31';

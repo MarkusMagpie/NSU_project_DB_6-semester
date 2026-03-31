@@ -17,7 +17,7 @@ TRUNCATE TABLE
     "Резерв_компонентов"
     RESTART IDENTITY CASCADE;
 
--- 3.	Получить перечень десяти наиболее часто используемых медикаментов в целом и указанной категории медикаментов.
+
 
 INSERT INTO "Поставщики" (Supplier_id, Full_name, Phone, Email)
 VALUES (1, 'поставщик1', '+70000000000', 'test@abc.ru');
@@ -86,14 +86,16 @@ VALUES
     (7, CURRENT_TIMESTAMP - INTERVAL '4 hours', 'выполнен',
      CURRENT_TIMESTAMP - INTERVAL '3 hours', 250.00, 4, 2);
 
--- наиболее часто заказываемые медикаменты
+
+
+-- 3.	Получить перечень десяти наиболее часто используемых медикаментов в целом и указанной категории медикаментов.
 SELECT
     l.Medicine_id AS ID,
-    l.Название AS Лекарство,
-    l.Тип AS Тип,
+    l."Название" AS Лекарство,
+    l."Тип" AS Тип,
     COUNT(o.Order_id) AS Количество_заказов -- агрегирующая функция
 FROM "Лекарства" AS l
     JOIN "Заказы" AS o ON l.Medicine_id = o.Medicine_id
-GROUP BY l.Medicine_id, l.Название, l.Тип
+GROUP BY l.Medicine_id, l."Название", l."Тип"
 ORDER BY COUNT(o.Order_id) DESC
 LIMIT 10;
