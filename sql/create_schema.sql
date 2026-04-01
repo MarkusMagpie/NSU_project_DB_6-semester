@@ -427,6 +427,7 @@ CREATE TABLE IF NOT EXISTS Компоненты (
     Name VARCHAR(100) NOT NULL,
     Shelf_life INT NOT NULL CHECK (Shelf_life > 0), -- в днях/месяцах
     Critical_level DECIMAL(10,2) NOT NULL CHECK (Critical_level >= 0),
+    Price DECIMAL(10,2) NOT NULL DEFAULT 0,
 
     CONSTRAINT unique_component_name UNIQUE (Name)
 );

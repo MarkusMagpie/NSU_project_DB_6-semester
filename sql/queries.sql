@@ -1,22 +1,5 @@
 SET search_path TO lab_drug_store;
 
-TRUNCATE TABLE
-    "Поставщики",
-    "Компоненты",
-    "Больные_клиенты",
-    "Лекарства",
-    "Готовые_лекарства",
-    "Изготавливаемые_лекарства",
-    "Технологические_карты",
-    "Рецептуры",
-    "Заявки_на_пополнение_компонентов",
-    "Заявки_на_пополнение_готовых_лека",
-    "Партии_компонентов",
-    "Рецепты",
-    "Заказы",
-    "Резерв_компонентов"
-    RESTART IDENTITY CASCADE;
-
 
 
 -- 1 Получить сведения о покупателях, которые не пришли забрать свой заказ в назначенное им время и общее их число.
@@ -36,20 +19,10 @@ WHERE o."Статус" = 'готов к выдаче'
   AND o."Время_изготовления" < CURRENT_TIMESTAMP - INTERVAL '1 hour' -- заказы готовы более часа назад
 ORDER BY o."Время_изготовления";
 
--- общее количество таких заказов
-SELECT COUNT(*) AS Не_забрали_заказы
-FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-WHERE o."Статус" = 'готов к выдаче'
-  AND o."Время_изготовления" IS NOT NULL
-  AND o."Время_изготовления" < CURRENT_TIMESTAMP - INTERVAL '1 hour';
-
 
 
 -- 2.	Получить перечень и общее число покупателей, которые ждут прибытия на склад нужных им медикаментов в целом
 -- и по указанной категории медикаментов.
-
--- перечень покупателей ждущих медикаменты
 SELECT
     bc.Client_id AS ID_клиента,
     bc."ФИО" AS ФИО,
@@ -62,28 +35,6 @@ FROM "Заказы" AS o
          JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
          JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
 WHERE o."Статус" = 'ожидание компонентов'
-ORDER BY bc.Client_id;
-
--- общее число покупателей с ожидающими заказами
-SELECT COUNT(DISTINCT bc.Client_id) AS Количество_ожидающих_клиентов
-FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-WHERE o."Статус" = 'ожидание компонентов';
-
--- перечень покупателей ждущих медикаменты конкретного типа
-SELECT
-    bc.Client_id AS ID_клиента,
-    bc."ФИО" AS ФИО,
-    bc."Телефон" AS Телефон,
-    bc."Адрес" AS Адрес,
-    o.Order_id AS Номер_заказа,
-    l."Название" AS Лекарство
-FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-         JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
-WHERE o."Статус" = 'ожидание компонентов' AND l."Тип" = 'изготавливаемое'
 ORDER BY bc.Client_id;
 
 
@@ -115,13 +66,6 @@ WHERE o."Статус" IN ('выполнен', 'в производстве')
 GROUP BY c.Component_id, c.Name
 ORDER BY Использовано DESC;
 
--- общий объем
-SELECT COALESCE(SUM(r.quantity_reserved), 0) AS Общий_объем
-FROM "Резерв_компонентов" AS r
-         JOIN "Заказы" AS o ON r.order_id = o.Order_id
-WHERE o."Статус" IN ('выполнен', 'в производстве')
-  AND o."Дата_создания" BETWEEN '2025-03-01' AND '2025-03-31';
-
 
 
 -- 5.	Получить перечень и общее число покупателей, заказывавших определенное лекарство
@@ -136,25 +80,6 @@ FROM "Заказы" AS o
          JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
 WHERE o.Medicine_id = 1
   AND o."Дата_создания" BETWEEN '2026-03-01' AND '2026-03-07';
-
--- общее число покупателей
-SELECT COUNT(DISTINCT bc.Client_id) AS Количество_покупателей
-FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-WHERE o.Medicine_id = 1
-  AND o."Дата_создания" BETWEEN '2026-03-01' AND '2026-03-07';
-
-SELECT DISTINCT
-    bc.Client_id AS ID_клиента,
-    bc."ФИО" AS ФИО,
-    bc."Телефон" AS Телефон,
-    bc."Адрес" AS Адрес
-FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-         JOIN "Лекарства" AS l ON o.medicine_id = l.medicine_id
-WHERE l."Тип" = 'изготавливаемое' AND o."Дата_создания" BETWEEN '2026-03-01' AND '2026-03-07';
 
 
 
@@ -213,3 +138,158 @@ FROM "Лекарства" AS l
          LEFT JOIN "Готовые_лекарства" AS g ON l.Medicine_id = g.Medicine_id
          LEFT JOIN all_stock AS cs ON l.Medicine_id = cs.med_id
 ORDER BY "Запас на складе, ед.";
+
+
+
+-- 8.	Получить полный перечень и общее число заказов находящихся в производстве.
+SELECT
+    o.Order_id AS ID_заказа,
+    o."Статус" AS Статус_заказа,
+    o."Дата_создания" AS Дата_создания,
+    l."Название" AS Лекарство,
+    bc."ФИО" AS ФИО_клиента
+FROM "Заказы" AS o
+    JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+    JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
+WHERE o."Статус" = 'в производстве'
+ORDER BY "Дата_создания";
+
+
+
+-- 9.	Получить полный перечень и общее число препаратов требующихся для заказов, находящихся в производстве.
+WITH orders_in_production AS (
+    SELECT
+        o.Order_id,
+        o.Medicine_id,
+        r."Количество_лекарства" AS Требуемое_количество
+    FROM "Заказы" AS o
+        JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    WHERE o."Статус" = 'в производстве'
+)
+SELECT
+    oi.Order_id AS Номер_заказа,
+    l."Название" AS Лекарство,
+    oi.Требуемое_количество AS "Количество, ед."
+FROM orders_in_production AS oi
+    JOIN "Лекарства" AS l ON oi.Medicine_id = l.Medicine_id
+ORDER BY Номер_заказа;
+
+
+
+-- 10.	Получить все технологии приготовления лекарств указанных типов, конкретных лекарств, лекарств, находящихся в справочнике заказов в производстве.
+WITH
+-- лекарства из заказов в производстве
+production_medicines AS (
+    SELECT DISTINCT Medicine_id
+    FROM "Заказы"
+    WHERE "Статус" = 'в производстве'
+),
+-- технологии с привязкой к лекарствам
+technologies AS (
+    SELECT
+    t.Technology_id,
+    t."Название" AS Технология,
+    t."Описание_процесса",
+    t.Medicine_id,
+    l."Название" AS Лекарство,
+    l."Тип"
+FROM "Технологические_карты" AS t
+    JOIN "Лекарства" AS l ON t.Medicine_id = l.Medicine_id
+)
+SELECT
+    Technology_id,
+    Технология,
+    "Описание_процесса",
+    Medicine_id,
+    Лекарство,
+    CASE
+        WHEN "Тип" = 'изготавливаемое' THEN 'по типу' -- 1 - тип
+        WHEN Medicine_id IN (2,5) THEN 'конкретное лекарство' -- 2 - по конкретному id лекарства
+        WHEN Medicine_id IN (SELECT Medicine_id FROM production_medicines) THEN 'в производстве' -- из заказов + 'в производстве'
+        END AS Причина
+FROM technologies
+ORDER BY Medicine_id, Technology_id;
+
+
+
+-- 11.	Получить сведения о ценах на указанное лекарство в готовом виде,
+-- об объеме и ценах на все компоненты, требующиеся для этого лекарства.
+SELECT
+    l.Medicine_id,
+    l."Название" AS "Лекарство",
+    l."Цена" AS "Цена лекарства, руб.",
+    c.Component_id,
+    c.Name AS "Компонент",
+    c.price AS "Цена компонента, руб./ед.",
+    r."Количество" AS "Требуемый объем на единицу лекарства",
+    (r."Количество" * c.price) AS "Стоимость на единицу лекраства, руб."
+FROM "Лекарства" AS l
+         JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+         JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+         JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
+WHERE l.Medicine_id = 4 -- указать ID изготавливаемого лекарства
+ORDER BY l.medicine_id, c.Component_id;
+
+
+
+-- 12.	Получить сведения о наиболее часто делающих заказы клиентах на медикаменты определенного типа,
+-- на конкретные медикаменты.
+SELECT
+    bc.Client_id,
+    bc."ФИО" AS "ФИО клиента",
+    bc."Телефон",
+    COUNT(o.Order_id) AS Количество_заказов
+FROM "Заказы" AS o
+         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+         JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
+WHERE l."Тип" = 'готовое' -- или 'изготавливаемое'
+GROUP BY bc.Client_id, "ФИО клиента", bc."Телефон"
+ORDER BY Количество_заказов DESC
+LIMIT 10;
+
+
+
+-- 13.	Получить сведения о конкретном лекарстве (его тип, способ приготовления, названия всех компонент,
+-- цены, его количество на складе).
+WITH component_stock AS (
+    SELECT
+        c.Component_id,
+        c.Name,
+        c.Price,
+        COALESCE(SUM(p.Quantity), 0) AS stock_quantity -- суммарное количесвто компонента по партиям
+    FROM "Компоненты" AS c
+             LEFT JOIN "Партии_компонентов" AS p ON c.Component_id = p.Component_id
+    GROUP BY c.Component_id, c.Name, c.Price
+),
+-- из query7.sql
+     max_units AS (
+         SELECT
+             l.Medicine_id,
+             MIN(FLOOR(cs.stock_quantity / r."Количество")) AS maximum_of_units -- кол-во изготовлений лекарства
+         FROM "Лекарства" AS l
+                  JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+                  JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+                  JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
+         WHERE l.Medicine_id = 4 -- кастомный id
+         GROUP BY l.Medicine_id
+     )
+SELECT
+    l.Medicine_id AS "id лекарства",
+    l."Название" AS Лекарство,
+    l."Тип" AS Тип,
+    t."Описание_процесса" AS "способ приготовления",
+    cs.Component_id AS "id компонента",
+    cs.Name AS "компонент",
+    r."Количество" AS "требуется на 1 ед.",
+    cs.Price AS "цена компонента",
+    cs.stock_quantity AS "остаток компонента, ед.",
+    mu.maximum_of_units AS "можно приготовить, ед."
+FROM "Лекарства" AS l
+         LEFT JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+         LEFT JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+         LEFT JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
+         LEFT JOIN max_units AS mu ON l.Medicine_id = mu.Medicine_id
+WHERE l.Medicine_id = 4 -- тот же кастомный id
+ORDER BY cs.Component_id;
