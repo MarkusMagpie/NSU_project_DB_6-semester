@@ -44,7 +44,7 @@ SELECT
     l.Medicine_id AS ID,
     l."Название" AS Лекарство,
     l."Тип" AS Тип,
-    COUNT(o.Order_id) AS Количество_заказов -- агрегирующая функция
+    COUNT(o.Order_id) AS Количество_заказов
 FROM "Лекарства" AS l
          JOIN "Заказы" AS o ON l.Medicine_id = o.Medicine_id
 GROUP BY l.Medicine_id, l."Название", l."Тип"
@@ -56,6 +56,7 @@ LIMIT 10;
 -- 4.	Получить какой объем указанных веществ использован за указанный период.
 SELECT
     c.Component_id AS ID_компонента,
+    o.order_id AS ID_заказа,
     c.Name AS Компонент,
     SUM(r.quantity_reserved) AS Использовано
 FROM "Резерв_компонентов" AS r
@@ -63,7 +64,7 @@ FROM "Резерв_компонентов" AS r
          JOIN "Компоненты" AS c ON r.component_id = c.Component_id
 WHERE o."Статус" IN ('выполнен', 'в производстве')
   AND o."Дата_создания" BETWEEN '2025-03-01' AND '2025-03-31'
-GROUP BY c.Component_id, c.Name
+GROUP BY c.Component_id, o.order_id, c.Name
 ORDER BY Использовано DESC;
 
 
@@ -94,16 +95,19 @@ WITH component_stock AS (
 )
 SELECT DISTINCT
     l.Medicine_id AS ID_лекарства,
-    l."Название",
-    l."Тип",
-    l."Способ_применения"
+    l."Название" as Лекарство,
+    c.Name AS Компонент,
+    cs.Current_quantity as "остаток комопонента",
+    c.critical_level as "критическая норма",
+    l."Способ_применения",
+    l."Тип"
 FROM "Лекарства" AS l
          JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
          JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
          JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
          JOIN component_stock AS cs ON c.Component_id = cs.Component_id
 WHERE cs.Current_quantity <= c.Critical_level
-ORDER BY "Название";
+ORDER BY Лекарство, Компонент;
 
 
 

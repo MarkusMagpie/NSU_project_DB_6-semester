@@ -48,7 +48,7 @@ CREATE OR REPLACE PROCEDURE add_client(fio VARCHAR, phone VARCHAR, address VARCH
     BEGIN
         INSERT INTO Больные_клиенты (ФИО, Телефон, Адрес)
         VALUES (fio, phone, address);
-        END;
+    END;
 $$ LANGUAGE plpgsql;
 
 
@@ -230,8 +230,8 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
     BEGIN
         IF NEW.Статус = 'в производстве' AND OLD.Статус != 'в производстве' THEN
             SELECT Тип INTO med_type
-                       FROM Лекарства
-                       WHERE Medicine_id = NEW.Medicine_id;
+            FROM Лекарства
+            WHERE Medicine_id = NEW.Medicine_id;
 
             IF med_type = 'изготавливаемое' THEN
                 -- получаю тех карту
@@ -355,8 +355,8 @@ CREATE OR REPLACE FUNCTION auto_reserve_components() RETURNS TRIGGER AS $$
 --
 --                 LOOP
 --                     SELECT COALESCE(SUM(Quantity), 0) INTO available_amount
---                                                       FROM Партии_компонентов
---                                                       WHERE Component_id = component.component_id;
+--                     FROM Партии_компонентов
+--                     WHERE Component_id = component.component_id;
 --
 --                     IF available_amount < component.required THEN
 --                         RAISE EXCEPTION 'Exception! Недостаточно компонента %: требуется %, доступно %',
@@ -497,7 +497,7 @@ CREATE OR REPLACE FUNCTION update_ready_medicine_stock()
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_update_ready_medicine_stock
-    AFTER INSERT OR UPDATE ON Заявки_на_пополнение_готовых_лекарств
+    AFTER INSERT OR UPDATE ON "Заявки_на_пополнение_готовых_лека"
     FOR EACH ROW
     EXECUTE FUNCTION update_ready_medicine_stock();
 
@@ -637,7 +637,8 @@ CREATE OR REPLACE FUNCTION update_waiting_orders() RETURNS TRIGGER AS $$
                 JOIN Лекарства AS l ON o.Medicine_id = l.Medicine_id
                 JOIN Технологические_карты AS t ON l.Medicine_id = t.Medicine_id
             WHERE o.Статус = 'ожидание компонентов' AND EXISTS (
-                SELECT 1 FROM Рецептуры AS r
+                SELECT 1
+                FROM Рецептуры AS r
                 -- в рецептуре r этого заказа o есть компонент который только что поступил
                 WHERE r.Технологическая_карта = t.Technology_id AND r.Компоненты = NEW.Component_id
             )
@@ -647,12 +648,12 @@ CREATE OR REPLACE FUNCTION update_waiting_orders() RETURNS TRIGGER AS $$
                 -- <=> нет ни одного компонента в рецептуре для которого не существует партии с >0 количеством
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM Рецептуры r
+                    FROM Рецептуры AS r
                     WHERE r.Технологическая_карта = order_rec.Technology_id
                       -- нет ли хотя бы одной партия с положительным остатком для конкретного компонента?
-                      AND NOT EXISTS (
+                    AND NOT EXISTS (
                         SELECT 1
-                        FROM Партии_компонентов p
+                        FROM Партии_компонентов AS p
                         WHERE p.Component_id = r.Компоненты AND p.Quantity > 0
                     )
                 ) THEN
