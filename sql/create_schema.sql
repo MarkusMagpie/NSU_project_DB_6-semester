@@ -166,13 +166,13 @@ CREATE OR REPLACE FUNCTION set_order_initial_status() RETURNS TRIGGER AS $$
         v_technology_id INT;
     BEGIN
         SELECT Тип INTO med_type
-                   FROM Лекарства
-                   WHERE Medicine_id = NEW.Medicine_id;
+        FROM Лекарства
+        WHERE Medicine_id = NEW.Medicine_id;
 
         IF med_type = 'изготавливаемое' THEN
             SELECT Technology_id INTO v_technology_id
-                                 FROM Технологические_карты
-                                 WHERE Medicine_id = NEW.Medicine_id;
+            FROM Технологические_карты
+            WHERE Medicine_id = NEW.Medicine_id;
 
             -- проверка каждого компонента
             PERFORM 1
