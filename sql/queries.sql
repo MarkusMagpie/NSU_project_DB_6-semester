@@ -12,8 +12,8 @@ SELECT
     o."Время_изготовления" AS Время_готовности,
     CURRENT_TIMESTAMP - o."Время_изготовления" AS Просрочка -- разница между текущем временем и временем изготовления деарства
 FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+    JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
 WHERE o."Статус" = 'готов к выдаче'
   AND o."Время_изготовления" IS NOT NULL
   AND o."Время_изготовления" < CURRENT_TIMESTAMP - INTERVAL '1 hour' -- заказы готовы более часа назад
@@ -31,9 +31,9 @@ SELECT
     o.Order_id AS Номер_заказа,
     l."Название" AS Лекарство
 FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-         JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
+    JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+    JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
 WHERE o."Статус" = 'ожидание компонентов'
 ORDER BY bc.Client_id;
 
@@ -46,7 +46,7 @@ SELECT
     l."Тип" AS Тип,
     COUNT(o.Order_id) AS Количество_заказов
 FROM "Лекарства" AS l
-         JOIN "Заказы" AS o ON l.Medicine_id = o.Medicine_id
+    JOIN "Заказы" AS o ON l.Medicine_id = o.Medicine_id
 GROUP BY l.Medicine_id, l."Название", l."Тип"
 ORDER BY COUNT(o.Order_id) DESC
 LIMIT 10;
@@ -60,8 +60,8 @@ SELECT
     c.Name AS Компонент,
     SUM(r.quantity_reserved) AS Использовано
 FROM "Резерв_компонентов" AS r
-         JOIN "Заказы" AS o ON r.order_id = o.Order_id
-         JOIN "Компоненты" AS c ON r.component_id = c.Component_id
+    JOIN "Заказы" AS o ON r.order_id = o.Order_id
+    JOIN "Компоненты" AS c ON r.component_id = c.Component_id
 WHERE o."Статус" IN ('выполнен', 'в производстве')
   AND o."Дата_создания" BETWEEN '2025-03-01' AND '2025-03-31'
 GROUP BY c.Component_id, o.order_id, c.Name
@@ -77,8 +77,8 @@ SELECT DISTINCT
     bc."Телефон" AS Телефон,
     bc."Адрес" AS Адрес
 FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+    JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
 WHERE o.Medicine_id = 1
   AND o."Дата_создания" BETWEEN '2026-03-01' AND '2026-03-07';
 
@@ -90,7 +90,7 @@ WITH component_stock AS (
         c.Component_id,
         COALESCE(SUM(p.Quantity), 0) AS Current_quantity
     FROM "Компоненты" AS c
-             LEFT JOIN "Партии_компонентов" AS p ON c.Component_id = p.Component_id
+        LEFT JOIN "Партии_компонентов" AS p ON c.Component_id = p.Component_id
     GROUP BY c.Component_id
 )
 SELECT DISTINCT
@@ -102,10 +102,10 @@ SELECT DISTINCT
     l."Способ_применения",
     l."Тип"
 FROM "Лекарства" AS l
-         JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
-         JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
-         JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
-         JOIN component_stock AS cs ON c.Component_id = cs.Component_id
+    JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+    JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+    JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
+    JOIN component_stock AS cs ON c.Component_id = cs.Component_id
 WHERE cs.Current_quantity <= c.Critical_level
 ORDER BY Лекарство, Компонент;
 
@@ -122,11 +122,11 @@ WITH component_sum AS (
      all_stock AS (
          SELECT
              l.Medicine_id as med_id,
-             MIN(FLOOR(cs.total_quantity / r.Количество)) AS maximum_of_units
+             MIN(FLOOR(cs.total_quantity / r."Количество")) AS maximum_of_units
          FROM "Лекарства" AS l
-                  JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
-                  JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
-                  JOIN component_sum as cs ON r."Компоненты" = cs.Component_id
+             JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+             JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+             JOIN component_sum as cs ON r."Компоненты" = cs.Component_id
          WHERE l."Тип" = 'изготавливаемое'
          GROUP BY l.Medicine_id
      )
@@ -139,8 +139,8 @@ SELECT
         ELSE COALESCE(cs.maximum_of_units, 0)
         END AS "Запас на складе, ед."
 FROM "Лекарства" AS l
-         LEFT JOIN "Готовые_лекарства" AS g ON l.Medicine_id = g.Medicine_id
-         LEFT JOIN all_stock AS cs ON l.Medicine_id = cs.med_id
+    LEFT JOIN "Готовые_лекарства" AS g ON l.Medicine_id = g.Medicine_id
+    LEFT JOIN all_stock AS cs ON l.Medicine_id = cs.med_id
 ORDER BY "Запас на складе, ед.";
 
 
@@ -229,9 +229,9 @@ SELECT
     r."Количество" AS "Требуемый объем на единицу лекарства",
     (r."Количество" * c.price) AS "Стоимость на единицу лекраства, руб."
 FROM "Лекарства" AS l
-         JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
-         JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
-         JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
+    JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+    JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+    JOIN "Компоненты" AS c ON r."Компоненты" = c.Component_id
 WHERE l.Medicine_id = 4 -- указать ID изготавливаемого лекарства
 ORDER BY l.medicine_id, c.Component_id;
 
@@ -245,9 +245,9 @@ SELECT
     bc."Телефон",
     COUNT(o.Order_id) AS Количество_заказов
 FROM "Заказы" AS o
-         JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
-         JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
-         JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
+    JOIN "Рецепты" AS r ON o.Prescription_id = r.Prescription_id
+    JOIN "Больные_клиенты" AS bc ON r.Client_id = bc.Client_id
+    JOIN "Лекарства" AS l ON o.Medicine_id = l.Medicine_id
 WHERE l."Тип" = 'готовое' -- или 'изготавливаемое'
 GROUP BY bc.Client_id, "ФИО клиента", bc."Телефон"
 ORDER BY Количество_заказов DESC
@@ -264,21 +264,21 @@ WITH component_stock AS (
         c.Price,
         COALESCE(SUM(p.Quantity), 0) AS stock_quantity -- суммарное количесвто компонента по партиям
     FROM "Компоненты" AS c
-             LEFT JOIN "Партии_компонентов" AS p ON c.Component_id = p.Component_id
+        LEFT JOIN "Партии_компонентов" AS p ON c.Component_id = p.Component_id
     GROUP BY c.Component_id, c.Name, c.Price
 ),
 -- из query7.sql
-     max_units AS (
-         SELECT
-             l.Medicine_id,
-             MIN(FLOOR(cs.stock_quantity / r."Количество")) AS maximum_of_units -- кол-во изготовлений лекарства
-         FROM "Лекарства" AS l
-                  JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
-                  JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
-                  JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
-         WHERE l.Medicine_id = 4 -- кастомный id
-         GROUP BY l.Medicine_id
-     )
+max_units AS (
+SELECT
+    l.Medicine_id,
+    MIN(FLOOR(cs.stock_quantity / r."Количество")) AS maximum_of_units -- кол-во изготовлений лекарства
+FROM "Лекарства" AS l
+    JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+    JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+    JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
+WHERE l.Medicine_id = 4 -- кастомный id
+GROUP BY l.Medicine_id
+)
 SELECT
     l.Medicine_id AS "id лекарства",
     l."Название" AS Лекарство,
@@ -291,9 +291,9 @@ SELECT
     cs.stock_quantity AS "остаток компонента, ед.",
     mu.maximum_of_units AS "можно приготовить, ед."
 FROM "Лекарства" AS l
-         LEFT JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
-         LEFT JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
-         LEFT JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
-         LEFT JOIN max_units AS mu ON l.Medicine_id = mu.Medicine_id
+    LEFT JOIN "Технологические_карты" AS t ON l.Medicine_id = t.Medicine_id
+    LEFT JOIN "Рецептуры" AS r ON t.Technology_id = r."Технологическая_карта"
+    LEFT JOIN component_stock AS cs ON r."Компоненты" = cs.Component_id
+    LEFT JOIN max_units AS mu ON l.Medicine_id = mu.Medicine_id
 WHERE l.Medicine_id = 4 -- тот же кастомный id
 ORDER BY cs.Component_id;

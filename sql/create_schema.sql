@@ -16,6 +16,7 @@ SET search_path TO lab_drug_store;
 -- DROP TABLE IF EXISTS Компоненты CASCADE;
 -- DROP TABLE IF EXISTS Поставщики CASCADE;
 -- DROP TABLE IF EXISTS Резерв_компонентов CASCADE;
+-- DROP FUNCTION IF EXISTS add_medicine(VARCHAR, VARCHAR, VARCHAR, DECIMAL, VARCHAR, VARCHAR, VARCHAR, INT, TEXT);
 
 
 
@@ -44,12 +45,14 @@ CREATE OR REPLACE TRIGGER trg_check_phone_format
     FOR EACH ROW
     EXECUTE FUNCTION check_phone_format();
 
-CREATE OR REPLACE PROCEDURE add_client(fio VARCHAR, phone VARCHAR, address VARCHAR) AS $$
+CREATE OR REPLACE PROCEDURE add_client(fio VARCHAR, phone VARCHAR, address VARCHAR)
+LANGUAGE plpgsql
+AS $$
     BEGIN
         INSERT INTO Больные_клиенты (ФИО, Телефон, Адрес)
         VALUES (fio, phone, address);
     END;
-$$ LANGUAGE plpgsql;
+$$;
 
 
 
@@ -87,54 +90,52 @@ CREATE TABLE IF NOT EXISTS Лекарства (
     CONSTRAINT check_price CHECK (Цена >= 0)
 );
 
-CREATE OR REPLACE FUNCTION add_medicine(
+CREATE OR REPLACE PROCEDURE add_medicine(
     name VARCHAR,
     type VARCHAR,
     application_method VARCHAR,
     price DECIMAL,
 
-    manufacturer VARCHAR DEFAULT NULL, -- для готового
-    dosage_form VARCHAR DEFAULT NULL, -- -//-
+    -- атрибуты для готового лек-ва
+    manufacturer VARCHAR DEFAULT NULL,
+    dosage_form VARCHAR DEFAULT NULL,
 
-    compounded_type VARCHAR DEFAULT NULL, -- для изготавливаемого
-    preparation_time INT DEFAULT NULL, -- -//-
-    composition TEXT DEFAULT NULL -- -//-
+    -- для изготавливаемого
+    compounded_type VARCHAR DEFAULT NULL,
+    preparation_time INT DEFAULT NULL,
+    composition TEXT DEFAULT NULL
 )
-    RETURNS INT AS $$
-    DECLARE
-        new_medicine_id INT;
-    BEGIN
-        IF type NOT IN ('готовое', 'изготавливаемое') THEN
-            RAISE EXCEPTION 'Exception! Недопустимый тип лекарства: %', type;
+LANGUAGE plpgsql AS $$
+DECLARE
+    new_medicine_id INT;
+BEGIN
+    IF type NOT IN ('готовое', 'изготавливаемое') THEN
+        RAISE EXCEPTION 'Exception! Недопустимый тип лекарства: %', type;
+    END IF;
+
+    IF type = 'готовое' THEN
+        IF manufacturer IS NULL OR dosage_form IS NULL THEN
+            RAISE EXCEPTION 'Exception! Для готового лекарства необходимо указать производителя и форму выпуска';
         END IF;
-
-        IF type = 'готовое' THEN
-            IF manufacturer IS NULL OR dosage_form IS NULL THEN
-                RAISE EXCEPTION 'Exception! Для готового лекарства необходимо указать производителя и форму выпуска';
-            END IF;
-        ELSE
-            IF compounded_type IS NULL OR preparation_time IS NULL OR composition IS NULL THEN
-                RAISE EXCEPTION 'Exception! Для изготавливаемого лекарства необходимо указать тип препарата, время приготовления и состав';
-            END IF;
+    ELSE
+        IF compounded_type IS NULL OR preparation_time IS NULL OR composition IS NULL THEN
+            RAISE EXCEPTION 'Exception! Для изготавливаемого лекарства необходимо указать тип препарата, время приготовления и состав';
         END IF;
+    END IF;
 
-        -- вставка в супертип
-        INSERT INTO Лекарства (Название, Тип, Способ_применения, Цена)
-        VALUES (name, type, application_method, price)
-        RETURNING Medicine_id INTO new_medicine_id;
+    INSERT INTO Лекарства (Название, Тип, Способ_применения, Цена)
+    VALUES (name, type, application_method, price)
+    RETURNING Medicine_id INTO new_medicine_id;
 
-        -- вставка в подтип
-        IF type = 'готовое' THEN
-            INSERT INTO Готовые_лекарства (Medicine_id, Производитель, Форма_выпуска)
-            VALUES (new_medicine_id, manufacturer, dosage_form);
-        ELSE
-            INSERT INTO Изготавливаемые_лекарства (Medicine_id, Тип_препарата, Время_приготовления, Состав)
-            VALUES (new_medicine_id, compounded_type, preparation_time, composition);
-        END IF;
-
-        RETURN new_medicine_id;
-    END;
-$$ LANGUAGE plpgsql;
+    IF type = 'готовое' THEN
+        INSERT INTO Готовые_лекарства (Medicine_id, Производитель, Форма_выпуска)
+        VALUES (new_medicine_id, manufacturer, dosage_form);
+    ELSE
+        INSERT INTO Изготавливаемые_лекарства (Medicine_id, Тип_препарата, Время_приготовления, Состав)
+        VALUES (new_medicine_id, compounded_type, preparation_time, composition);
+    END IF;
+END;
+$$;
 
 
 
@@ -505,7 +506,7 @@ CREATE TRIGGER trg_update_ready_medicine_stock
 
 CREATE TABLE IF NOT EXISTS Изготавливаемые_лекарства (
     Medicine_id INT PRIMARY KEY,
-    Состав TEXT NOT NULL,
+    Состав VARCHAR(100) NOT NULL,
     Время_приготовления INT NOT NULL,
     Тип_препарата VARCHAR(100) NOT NULL,
 
