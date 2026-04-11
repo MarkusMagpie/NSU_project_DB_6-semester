@@ -404,7 +404,7 @@ CREATE OR REPLACE FUNCTION consume_ready_medicine() RETURNS TRIGGER AS $$
     END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_consume_ready_medicine
+CREATE OR REPLACE TRIGGER trg_consume_ready_medicine
     AFTER UPDATE ON Заказы
     FOR EACH ROW
     EXECUTE FUNCTION consume_ready_medicine();
@@ -497,7 +497,7 @@ CREATE OR REPLACE FUNCTION update_ready_medicine_stock()
     END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_update_ready_medicine_stock
+CREATE OR REPLACE TRIGGER trg_update_ready_medicine_stock
     AFTER INSERT OR UPDATE ON "Заявки_на_пополнение_готовых_лека"
     FOR EACH ROW
     EXECUTE FUNCTION update_ready_medicine_stock();
