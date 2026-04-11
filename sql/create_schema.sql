@@ -20,9 +20,6 @@ SET search_path TO lab_drug_store;
 
 
 
-
-
-
 CREATE TABLE IF NOT EXISTS Больные_клиенты (
     Client_id INT PRIMARY KEY,
     ФИО VARCHAR(100) NOT NULL,
@@ -165,6 +162,7 @@ CREATE OR REPLACE FUNCTION set_order_initial_status() RETURNS TRIGGER AS $$
     DECLARE
         med_type VARCHAR;
         v_technology_id INT;
+        missing BOOLEAN;
     BEGIN
         SELECT Тип INTO med_type
         FROM Лекарства
@@ -175,18 +173,16 @@ CREATE OR REPLACE FUNCTION set_order_initial_status() RETURNS TRIGGER AS $$
             FROM Технологические_карты
             WHERE Medicine_id = NEW.Medicine_id;
 
-            -- проверка каждого компонента
-            PERFORM 1
-            FROM Рецептуры r
-            WHERE r.Технологическая_карта = v_technology_id
-              -- для отсутствующего компонента нет записи в Партии_компонентов с Quantity > 0
-              AND NOT EXISTS (
+            -- проверка: есть ли компоненты без партий с остатком >0? блокирую все такие партии
+            missing := EXISTS (
                 SELECT 1
-                FROM Партии_компонентов p
-                WHERE p.Component_id = r.Компоненты AND p.Quantity > 0
-              );
+                FROM Рецептуры AS r
+                    LEFT JOIN Партии_компонентов AS p ON p.Component_id = r.Компоненты AND p.Quantity > 0
+                WHERE r.Технологическая_карта = v_technology_id AND p.Batch_id IS NULL
+                FOR UPDATE OF p -- блокирует найденные партии (только строки из таблицы "Партии компонентов")
+            );
 
-            IF FOUND THEN
+            IF missing THEN
                 NEW.Статус := 'ожидание компонентов';
             ELSE
                 NEW.Статус := 'готов к производству';
@@ -204,8 +200,6 @@ CREATE OR REPLACE TRIGGER trg_set_order_initial_status
     BEFORE INSERT ON Заказы
     FOR EACH ROW
     EXECUTE FUNCTION set_order_initial_status();
-
-
 
 CREATE OR REPLACE FUNCTION auto_set_completion_time() RETURNS TRIGGER AS $$
     BEGIN
@@ -244,23 +238,29 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
                     RAISE EXCEPTION 'Exception! Для изготавливаемого лекарства % не найдена технологическая карта', NEW.Medicine_id;
                 END IF;
 
+                -- блокировка всех резервов для этого заказа до конца транзакции
+                PERFORM 1
+                FROM Резерв_компонентов
+                WHERE order_id = NEW.Order_id
+                FOR UPDATE;
+
                 -- перебор компонентов из рецептуры
                 FOR component IN
                     SELECT r.Компоненты AS component_id, r.Количество AS required_amount
-                    FROM Рецептуры r
+                    FROM Рецептуры AS r
                     WHERE r.Технологическая_карта = v_technology_id
 
                     LOOP
-                    -- сумма зарезервированных компонентов для данного заказа
-                    SELECT COALESCE(SUM(quantity_reserved), 0) INTO reserved_amount
-                    FROM Резерв_компонентов
-                    WHERE order_id = NEW.Order_id AND component_id = component.component_id;
+                        -- сумма зарезервированных компонентов для данного заказа
+                        SELECT COALESCE(SUM(quantity_reserved), 0) INTO reserved_amount
+                        FROM Резерв_компонентов
+                        WHERE order_id = NEW.Order_id AND component_id = component.component_id;
 
-                    IF reserved_amount < component.required_amount THEN
-                        RAISE EXCEPTION 'Exception! Недостаточно зарезервировано компонента %: требуется %, зарезервировано %',
-                            component.component_id, component.required_amount, reserved_amount;
-                    END IF;
-                END LOOP;
+                        IF reserved_amount < component.required_amount THEN
+                            RAISE EXCEPTION 'Exception! Недостаточно зарезервировано компонента %: требуется %, зарезервировано %',
+                                component.component_id, component.required_amount, reserved_amount;
+                        END IF;
+                    END LOOP;
             END IF;
         END IF;
 
@@ -281,20 +281,24 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
         remaining DECIMAL; -- сколько еще нужно списать
     BEGIN
         IF NEW.Статус = 'в производстве' AND OLD.Статус != 'в производстве' THEN
+            -- блокировка резервов для конкретного заказа чтобы их нельхя было менять прараллельно
             FOR reservation IN
                 SELECT component_id, quantity_reserved
                 FROM Резерв_компонентов
                 WHERE order_id = NEW.Order_id
+                FOR UPDATE
 
                 LOOP
                     remaining := reservation.quantity_reserved;
 
                     -- поиск партии этого компонента
+                    -- заблокировать все подходящие партии компонента
                     FOR batch IN
                         SELECT batch_id, Quantity
                         FROM Партии_компонентов
                         WHERE component_id = reservation.component_id AND Quantity > 0
                         ORDER BY receipt_date
+                        FOR UPDATE
 
                         LOOP
                             IF remaining <= 0 THEN
@@ -368,7 +372,7 @@ CREATE OR REPLACE FUNCTION auto_reserve_components() RETURNS TRIGGER AS $$
             -- создание резервов компоенентов
             FOR component IN
                 SELECT r.Компоненты AS component_id, r.Количество AS required
-                FROM Рецептуры r
+                FROM Рецептуры AS r
                 WHERE r.Технологическая_карта = v_technology_id
 
                 LOOP
@@ -389,12 +393,23 @@ CREATE OR REPLACE TRIGGER trg_auto_reserve_components
 CREATE OR REPLACE FUNCTION consume_ready_medicine() RETURNS TRIGGER AS $$
     DECLARE
         med_type VARCHAR;
+        current_stock DECIMAL;
     BEGIN
         SELECT Тип INTO med_type
         FROM Лекарства
         WHERE Medicine_id = NEW.Medicine_id;
 
         IF med_type = 'готовое' AND NEW.Статус = 'выполнен' AND OLD.Статус != 'выполнен' THEN
+            -- блокировка строки Остаток готового лекарсвта
+            SELECT Остаток INTO current_stock
+            FROM Готовые_лекарства
+            WHERE Medicine_id = NEW.Medicine_id
+            FOR UPDATE;
+
+            IF current_stock < 1 THEN
+                RAISE EXCEPTION 'Exception! Недостаточно готового лекарства (id=%) на складе: остаток %', NEW.Medicine_id, current_stock;
+            END IF;
+
             UPDATE Готовые_лекарства
             SET Остаток = Остаток - 1   -- пока что заказ всегда уменьшается на 1 единицу
             WHERE Medicine_id = NEW.Medicine_id;
@@ -593,13 +608,15 @@ CREATE OR REPLACE FUNCTION check_critical_level() RETURNS TRIGGER AS $$
         critical DECIMAL;
         existing_request INT;
     BEGIN
+        -- блок строки компонента чтобы другие транзакции не могли одновременно создавать заявки
+        SELECT Critical_level INTO critical
+        FROM Компоненты
+        WHERE Component_id = NEW.Component_id
+        FOR UPDATE;
+
         -- общее количество компонента
         SELECT COALESCE(SUM(Quantity), 0) INTO total_quantity
         FROM Партии_компонентов
-        WHERE Component_id = NEW.Component_id;
-
-        SELECT Critical_level INTO critical
-        FROM Компоненты
         WHERE Component_id = NEW.Component_id;
 
         IF total_quantity <= critical THEN
