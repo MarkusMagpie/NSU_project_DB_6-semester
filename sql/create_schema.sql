@@ -16,7 +16,6 @@ SET search_path TO lab_drug_store;
 -- DROP TABLE IF EXISTS Компоненты CASCADE;
 -- DROP TABLE IF EXISTS Поставщики CASCADE;
 -- DROP TABLE IF EXISTS Резерв_компонентов CASCADE;
--- DROP FUNCTION IF EXISTS add_medicine(VARCHAR, VARCHAR, VARCHAR, DECIMAL, VARCHAR, VARCHAR, VARCHAR, INT, TEXT);
 
 
 
@@ -131,6 +130,10 @@ BEGIN
         INSERT INTO Изготавливаемые_лекарства (Medicine_id, Тип_препарата, Время_приготовления, Состав)
         VALUES (new_medicine_id, compounded_type, preparation_time, composition);
     END IF;
+EXCEPTION -- блок обработки исключений
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Ошибка при добавлении лекарства: %', SQLERRM;
+        RAISE;
 END;
 $$;
 
@@ -265,6 +268,10 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
         END IF;
 
         RETURN NEW;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE NOTICE 'Ошибка в check_reserved_components: %', SQLERRM;
+            RAISE;
     END;
 $$ LANGUAGE plpgsql;
 
@@ -320,7 +327,7 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
                             END IF;
                         END LOOP;
 
-                    -- после перебора всех партий осталось несписанное количество
+                    -- после перебора всех партий осталось несписанное количество -> на складе не хватает компонента
                     IF remaining > 0 THEN
                         RAISE EXCEPTION 'Exception! Не хватает компонента % на складе', reservation.component_id;
                     END IF;

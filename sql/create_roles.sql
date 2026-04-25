@@ -1,22 +1,27 @@
 SET search_path TO lab_drug_store;
 
+-- DROP SCHEMA IF EXISTS lab_drug_store CASCADE;
+
 -- 1 роли
 CREATE ROLE registrator;
 CREATE ROLE storekeeper;
 CREATE ROLE pharmacist;
+CREATE ROLE admin;
 
 -- 2 пользователи
 CREATE USER reg_user WITH PASSWORD 'reg_pass';
 CREATE USER store_user WITH PASSWORD 'store_pass';
 CREATE USER pharm_user WITH PASSWORD 'pharm_pass';
+CREATE USER admin_user WITH PASSWORD 'admin_pass';
 
 -- 3 назначаю роли пользователям
 GRANT registrator TO reg_user;
 GRANT storekeeper TO store_user;
 GRANT pharmacist TO pharm_user;
+GRANT admin TO admin_user;
 
 -- 4 права доступа к схемам (по умолчанию их у юзеров нема)
-GRANT USAGE ON SCHEMA lab_drug_store TO registrator, storekeeper, pharmacist;
+GRANT USAGE ON SCHEMA lab_drug_store TO registrator, storekeeper, pharmacist, admin;
 
 -- права для роли registrator
 GRANT SELECT, INSERT, UPDATE ("Статус", "Время_изготовления") ON "Заказы" TO registrator;
@@ -65,3 +70,8 @@ GRANT SELECT ON "Больные_клиенты" TO pharmacist;
 GRANT SELECT ON v_technologies, v_orders_in_production, v_required_medicines_for_production TO pharmacist;
 -- TODO - пересмотри необходимость выдачи прав на add_medicine. в теории нужен некий администратор
 GRANT EXECUTE ON PROCEDURE add_medicine TO pharmacist;
+
+-- права для админа
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA lab_drug_store TO admin;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA lab_drug_store TO admin;
+GRANT EXECUTE ON PROCEDURE add_client, add_medicine TO admin;
