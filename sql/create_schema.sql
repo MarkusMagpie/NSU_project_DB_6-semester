@@ -2,6 +2,8 @@ CREATE SCHEMA IF NOT EXISTS lab_drug_store;
 
 SET search_path TO lab_drug_store;
 
+-- DROP SCHEMA IF EXISTS lab_drug_store CASCADE;
+
 -- DROP TABLE IF EXISTS Рецептуры CASCADE;
 -- DROP TABLE IF EXISTS Технологические_карты CASCADE;
 -- DROP TABLE IF EXISTS Изготавливаемые_лекарства CASCADE;
@@ -44,10 +46,13 @@ CREATE OR REPLACE TRIGGER trg_check_phone_format
 CREATE OR REPLACE PROCEDURE add_client(fio VARCHAR, phone VARCHAR, address VARCHAR)
 LANGUAGE plpgsql
 AS $$
-    BEGIN
-        INSERT INTO Больные_клиенты (ФИО, Телефон, Адрес)
-        VALUES (fio, phone, address);
-    END;
+DECLARE
+    new_id INT;
+BEGIN
+    SELECT COALESCE(MAX(Client_id), 0) + 1 INTO new_id FROM lab_drug_store.Больные_клиенты;
+    INSERT INTO lab_drug_store.Больные_клиенты (Client_id, ФИО, Телефон, Адрес)
+    VALUES (new_id, fio, phone, address);
+END;
 $$;
 
 
@@ -403,13 +408,13 @@ CREATE OR REPLACE FUNCTION consume_ready_medicine() RETURNS TRIGGER AS $$
         current_stock DECIMAL;
     BEGIN
         SELECT Тип INTO med_type
-        FROM Лекарства
+        FROM lab_drug_store.Лекарства
         WHERE Medicine_id = NEW.Medicine_id;
 
         IF med_type = 'готовое' AND NEW.Статус = 'выполнен' AND OLD.Статус != 'выполнен' THEN
             -- блокировка строки Остаток готового лекарсвта
             SELECT Остаток INTO current_stock
-            FROM Готовые_лекарства
+            FROM lab_drug_store.Готовые_лекарства
             WHERE Medicine_id = NEW.Medicine_id
             FOR UPDATE;
 
@@ -417,7 +422,7 @@ CREATE OR REPLACE FUNCTION consume_ready_medicine() RETURNS TRIGGER AS $$
                 RAISE EXCEPTION 'Exception! Недостаточно готового лекарства (id=%) на складе: остаток %', NEW.Medicine_id, current_stock;
             END IF;
 
-            UPDATE Готовые_лекарства
+            UPDATE lab_drug_store.Готовые_лекарства
             SET Остаток = Остаток - 1   -- пока что заказ всегда уменьшается на 1 единицу
             WHERE Medicine_id = NEW.Medicine_id;
         END IF;
