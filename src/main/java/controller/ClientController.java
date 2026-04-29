@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ClientController {
-    private Connection connection;
+    private final Connection connection;
 
     public ClientController(Connection connection) {
         this.connection = connection;
