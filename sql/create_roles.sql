@@ -34,11 +34,15 @@ GRANT SELECT ON "Технологические_карты" TO registrator;
 GRANT SELECT ON "Рецептуры" TO registrator;
 GRANT SELECT ON "Компоненты" TO registrator;
 GRANT SELECT ON "Поставщики" TO registrator;
+GRANT SELECT ON "Партии_компонентов" to registrator;
+grant select, insert on "Резерв_компонентов" to registrator;
 -- может просматривать представления
 GRANT SELECT ON v_unclaimed_orders, v_waiting_customers, v_orders_in_production, v_required_medicines_for_production TO registrator;
 GRANT EXECUTE ON PROCEDURE add_client TO registrator;
 -- TODO - пересмотри необходимость выдачи прав на add_medicine. в теории нужен некий администратор
 GRANT EXECUTE ON PROCEDURE add_medicine TO registrator;
+-- sequence
+GRANT USAGE ON SEQUENCE lab_drug_store.Резерв_компонентов_reservation_id_seq TO registrator;
 
 -- права для кладовщика для управления складскими таблицами
 GRANT SELECT, INSERT, UPDATE ON "Партии_компонентов" TO storekeeper;

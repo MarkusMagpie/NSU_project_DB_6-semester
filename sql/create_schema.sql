@@ -173,21 +173,20 @@ CREATE OR REPLACE FUNCTION set_order_initial_status() RETURNS TRIGGER AS $$
         missing BOOLEAN;
     BEGIN
         SELECT Тип INTO med_type
-        FROM Лекарства
+        FROM lab_drug_store.Лекарства
         WHERE Medicine_id = NEW.Medicine_id;
 
         IF med_type = 'изготавливаемое' THEN
             SELECT Technology_id INTO v_technology_id
-            FROM Технологические_карты
+            FROM lab_drug_store.Технологические_карты
             WHERE Medicine_id = NEW.Medicine_id;
 
             -- проверка: есть ли компоненты без партий с остатком >0? блокирую все такие партии
             missing := EXISTS (
                 SELECT 1
-                FROM Рецептуры AS r
-                    LEFT JOIN Партии_компонентов AS p ON p.Component_id = r.Компоненты AND p.Quantity > 0
+                FROM lab_drug_store.Рецептуры AS r
+                    LEFT JOIN lab_drug_store.Партии_компонентов AS p ON p.Component_id = r.Компоненты AND p.Quantity > 0
                 WHERE r.Технологическая_карта = v_technology_id AND p.Batch_id IS NULL
-                FOR UPDATE OF p -- блокирует найденные партии (только строки из таблицы "Партии компонентов")
             );
 
             IF missing THEN
@@ -358,11 +357,13 @@ CREATE OR REPLACE FUNCTION auto_reserve_components() RETURNS TRIGGER AS $$
         v_technology_id INT;
         component RECORD;
     BEGIN
-        SELECT Тип INTO med_type FROM Лекарства WHERE Medicine_id = NEW.Medicine_id;
+        SELECT Тип INTO med_type
+        FROM lab_drug_store.Лекарства
+        WHERE Medicine_id = NEW.Medicine_id;
 
         IF med_type = 'изготавливаемое' THEN
             SELECT Technology_id INTO v_technology_id
-            FROM Технологические_карты
+            FROM lab_drug_store.Технологические_карты
             WHERE Medicine_id = NEW.Medicine_id;
 
 --             FOR component IN
@@ -384,11 +385,11 @@ CREATE OR REPLACE FUNCTION auto_reserve_components() RETURNS TRIGGER AS $$
             -- создание резервов компоенентов
             FOR component IN
                 SELECT r.Компоненты AS component_id, r.Количество AS required
-                FROM Рецептуры AS r
+                FROM lab_drug_store.Рецептуры AS r
                 WHERE r.Технологическая_карта = v_technology_id
 
                 LOOP
-                    INSERT INTO Резерв_компонентов (order_id, component_id, quantity_reserved)
+                    INSERT INTO lab_drug_store.Резерв_компонентов (order_id, component_id, quantity_reserved)
                     VALUES (NEW.Order_id, component.component_id, component.required);
                 END LOOP;
         END IF;
