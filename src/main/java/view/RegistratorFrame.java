@@ -31,6 +31,7 @@ public class RegistratorFrame extends JFrame {
         this.medicineController = new MedicineController(connection);
 
         setTitle("Аптека - Регистратор");
+        setResizable(false);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(900, 600);
         setLocationRelativeTo(null);
@@ -68,7 +69,13 @@ public class RegistratorFrame extends JFrame {
     // --------------------------------------------------------------------------- вкладка "Больные клиенты" (просмотр, создание)
     private JPanel createClientsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        DefaultTableModel model = new DefaultTableModel(new String[]{"ID", "ФИО", "Телефон", "Адрес"}, 0);
+        DefaultTableModel model = new DefaultTableModel(new String[]{"ID", "ФИО", "Телефон", "Адрес"}, 0)
+        {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         JTable table = new JTable(model);
         refreshClientsTable(model);
 
@@ -149,7 +156,13 @@ public class RegistratorFrame extends JFrame {
     private JPanel createMedicinesPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        DefaultTableModel model = new DefaultTableModel(new String[]{"ID", "Название", "Тип", "Способ применения", "Цена"}, 0);
+        DefaultTableModel model = new DefaultTableModel(new String[]{"ID", "Название", "Тип", "Способ применения", "Цена"}, 0)
+        {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         JTable table = new JTable(model);
 
         try (Statement st = connection.createStatement();
@@ -171,19 +184,23 @@ public class RegistratorFrame extends JFrame {
     private JPanel createOrdersPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        // модель таблицы
         ordersTableModel = new DefaultTableModel(new String[]{
                 "ID заказа", "Дата создания", "Статус", "Время изготовления", "Цена", "Лекарство"
-        }, 0);
+        }, 0)
+        {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
         JTable table = new JTable(ordersTableModel);
         refreshOrdersTable(); // метод для загрузки данных
 
-        // попка изменения статуса
         JButton statusButton = new JButton("Изменить статус");
         statusButton.addActionListener(e -> {
             int selectedRow = table.getSelectedRow();
             if (selectedRow == -1) {
-                JOptionPane.showMessageDialog(this, "Выберите заказ");
+                JOptionPane.showMessageDialog(this, "Перед изменением статуса заказа нужно его выбрать");
                 return;
             }
 
@@ -192,8 +209,10 @@ public class RegistratorFrame extends JFrame {
             changeOrderStatus(orderId, currentStatus);
         });
 
+        JPanel btnPanel = new JPanel();
+        btnPanel.add(statusButton);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
-        panel.add(statusButton, BorderLayout.SOUTH);
+        panel.add(btnPanel, BorderLayout.SOUTH);
 
         return panel;
     }
@@ -243,15 +262,17 @@ public class RegistratorFrame extends JFrame {
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
             String newStatus = (String) combo.getSelectedItem();
-            assert newStatus != null;
-            if (!newStatus.equals(currentStatus)) {
-                try {
-                    orderController.updateOrderStatus(orderId, newStatus);
-                    refreshOrdersTable();
-                    JOptionPane.showMessageDialog(this, "Статус изменен на " + newStatus);
-                } catch (SQLException e) {
-                    JOptionPane.showMessageDialog(this, "Ошибка обновления статуса: " + e.getMessage());
-                }
+            if (newStatus == null) return;
+            if (newStatus.equals(currentStatus)) {
+                JOptionPane.showMessageDialog(this, "Вы выбрали текущий статус");
+                return;
+            }
+            try {
+                orderController.updateOrderStatus(orderId, newStatus);
+                refreshOrdersTable();
+                JOptionPane.showMessageDialog(this, "Статус изменен на " + newStatus);
+            } catch (SQLException e) {
+                JOptionPane.showMessageDialog(this, "Ошибка обновления статуса: " + e.getMessage());
             }
         }
     }
@@ -353,24 +374,38 @@ public class RegistratorFrame extends JFrame {
         return panel;
     }
 
+    // загружает данные из представления и заполняет ими table
     private void refreshViewTable(JTable table, String viewName) {
         try (Statement st = connection.createStatement();
             ResultSet rs = st.executeQuery("SELECT * FROM lab_drug_store." + viewName)) {
+
+                // метаданные - количество столбцов и их имена
                 ResultSetMetaData meta = rs.getMetaData();
                 int columnCount = meta.getColumnCount();
-                Vector<String> columnNames = new Vector<>();
+                Vector<String> columnNames = new Vector<>(); // имена столбцов - будут заголовками таблицы
                 for (int i = 1; i <= columnCount; i++) {
                     columnNames.add(meta.getColumnName(i));
                 }
+
+                // сбор строк данных
                 Vector<Vector<Object>> data = new Vector<>();
                 while (rs.next()) {
                     Vector<Object> row = new Vector<>();
                     for (int i = 1; i <= columnCount; i++) {
-                        row.add(rs.getObject(i));
+                        row.add(rs.getObject(i)); // запись значений ячейки в row
                     }
                     data.add(row);
                 }
-                table.setModel(new DefaultTableModel(data, columnNames));
+
+                // модель таблицы = данные + заголовки столбцов
+                DefaultTableModel model = new DefaultTableModel(data, columnNames) {
+                    @Override
+                    public boolean isCellEditable(int row, int column) {
+                        return false;
+                    }
+                };
+
+                table.setModel(model);
         } catch (SQLException e) {
             JOptionPane.showMessageDialog(this,
                     "Ошибка загрузки представления " + viewName + ": " + e.getMessage());
