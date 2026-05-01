@@ -7,6 +7,7 @@ public class App {
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame();
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
             new LoginDialog(frame).setVisible(true);
         });
     }
