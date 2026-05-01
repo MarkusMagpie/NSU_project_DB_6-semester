@@ -49,7 +49,7 @@ GRANT SELECT, INSERT, UPDATE ON "Партии_компонентов" TO storeke
 GRANT SELECT, INSERT, UPDATE ON "Заявки_на_пополнение_компонентов" TO storekeeper;
 GRANT SELECT, INSERT, UPDATE ON "Заявки_на_пополнение_готовых_лека" TO storekeeper;
 GRANT SELECT, UPDATE ("Остаток") ON "Готовые_лекарства" TO storekeeper;
-GRANT SELECT ON "Компоненты" TO storekeeper;
+GRANT SELECT, update ON "Компоненты" TO storekeeper;
 GRANT SELECT ON "Поставщики" TO storekeeper;
 GRANT SELECT ON "Лекарства" TO storekeeper;
 GRANT SELECT ON "Изготавливаемые_лекарства" TO storekeeper;

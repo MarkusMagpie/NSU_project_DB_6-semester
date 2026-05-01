@@ -516,7 +516,7 @@ CREATE OR REPLACE FUNCTION update_ready_medicine_stock()
     RETURNS TRIGGER AS $$
     BEGIN
         IF NEW.Status = 'получена' AND (OLD.Status IS NULL OR OLD.Status != 'получена') THEN
-            UPDATE Готовые_лекарства
+            UPDATE lab_drug_store.Готовые_лекарства
             SET Остаток = Остаток + NEW.Quantity
             WHERE Medicine_id = NEW.Medicine_id;
         END IF;
@@ -612,7 +612,7 @@ CREATE TABLE IF NOT EXISTS Партии_компонентов (
     CONSTRAINT FK_batch_component FOREIGN KEY (Component_id)
         REFERENCES Компоненты(Component_id)
         ON DELETE RESTRICT,
-    CONSTRAINT check_receipt_date CHECK (Receipt_date <= CURRENT_DATE)
+    CONSTRAINT check_receipt_date CHECK (Receipt_date <= CURRENT_DATE AND Receipt_date >= '2000-01-01')
 );
 
 CREATE OR REPLACE FUNCTION check_critical_level() RETURNS TRIGGER AS $$
@@ -623,24 +623,24 @@ CREATE OR REPLACE FUNCTION check_critical_level() RETURNS TRIGGER AS $$
     BEGIN
         -- блок строки компонента чтобы другие транзакции не могли одновременно создавать заявки
         SELECT Critical_level INTO critical
-        FROM Компоненты
+        FROM lab_drug_store.Компоненты
         WHERE Component_id = NEW.Component_id
         FOR UPDATE;
 
         -- общее количество компонента
         SELECT COALESCE(SUM(Quantity), 0) INTO total_quantity
-        FROM Партии_компонентов
+        FROM lab_drug_store.Партии_компонентов
         WHERE Component_id = NEW.Component_id;
 
         IF total_quantity <= critical THEN
             -- триггер может создавать несколько заявок если остаток долго находится ниже critical_level
             SELECT Component_request_id INTO existing_request
-            FROM Заявки_на_пополнение_компонентов
+            FROM lab_drug_store.Заявки_на_пополнение_компонентов
             WHERE Component_id = NEW.Component_id AND Status IN ('новая', 'отправлена')
             LIMIT 1;
 
             IF existing_request IS NULL THEN
-                INSERT INTO Заявки_на_пополнение_компонентов (Component_id, Quantity, Status, Supplier_id)
+                INSERT INTO lab_drug_store.Заявки_на_пополнение_компонентов (Component_id, Quantity, Status, Supplier_id)
                 VALUES (NEW.Component_id, critical * 2, 'новая', 1);
             END IF;
         END IF;
@@ -664,12 +664,12 @@ CREATE OR REPLACE FUNCTION update_waiting_orders() RETURNS TRIGGER AS $$
         -- для каждого заказа в 'ожидании компонентов' который включает этот компонент
         FOR order_rec IN
             SELECT DISTINCT o.Order_id, t.Technology_id
-            FROM Заказы AS o
-                JOIN Лекарства AS l ON o.Medicine_id = l.Medicine_id
-                JOIN Технологические_карты AS t ON l.Medicine_id = t.Medicine_id
+            FROM lab_drug_store.Заказы AS o
+                JOIN lab_drug_store.Лекарства AS l ON o.Medicine_id = l.Medicine_id
+                JOIN lab_drug_store.Технологические_карты AS t ON l.Medicine_id = t.Medicine_id
             WHERE o.Статус = 'ожидание компонентов' AND EXISTS (
                 SELECT 1
-                FROM Рецептуры AS r
+                FROM lab_drug_store.Рецептуры AS r
                 -- в рецептуре r этого заказа o есть компонент который только что поступил
                 WHERE r.Технологическая_карта = t.Technology_id AND r.Компоненты = NEW.Component_id
             )
@@ -679,16 +679,16 @@ CREATE OR REPLACE FUNCTION update_waiting_orders() RETURNS TRIGGER AS $$
                 -- <=> нет ни одного компонента в рецептуре для которого не существует партии с >0 количеством
                 IF NOT EXISTS (
                     SELECT 1
-                    FROM Рецептуры AS r
+                    FROM lab_drug_store.Рецептуры AS r
                     WHERE r.Технологическая_карта = order_rec.Technology_id
                       -- нет ли хотя бы одной партия с положительным остатком для конкретного компонента?
                     AND NOT EXISTS (
                         SELECT 1
-                        FROM Партии_компонентов AS p
+                        FROM lab_drug_store.Партии_компонентов AS p
                         WHERE p.Component_id = r.Компоненты AND p.Quantity > 0
                     )
                 ) THEN
-                    UPDATE Заказы SET Статус = 'готов к производству' WHERE Order_id = order_rec.Order_id;
+                    UPDATE lab_drug_store.Заказы SET Статус = 'готов к производству' WHERE Order_id = order_rec.Order_id;
                 END IF;
             END LOOP;
 
