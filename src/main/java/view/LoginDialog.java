@@ -76,8 +76,7 @@ public class LoginDialog extends JDialog {
         if ("Регистратор".equals(role)) {
             new RegistratorFrame(conn).setVisible(true);
         }  else if ("Кладовщик".equals(role)) {
-            // new StorekeeperFrame(conn).setVisible(true);
-            return;
+             new StorekeeperFrame(conn).setVisible(true);
         } else if ("Фармацевт".equals(role)) {
             // new PharmacistFrame(conn).setVisible(true);
             return;
