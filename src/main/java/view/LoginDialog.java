@@ -66,8 +66,8 @@ public class LoginDialog extends JDialog {
                 dispose();
             } catch (SQLException ex) {
                 System.out.println(ex.getMessage());
-                JOptionPane.showMessageDialog(this, "Ошибка подключения к бд: " + ex.getMessage(),
-                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Ошибка подключения к бд", "Ошибка",
+                        JOptionPane.ERROR_MESSAGE);
             }
         });
     }

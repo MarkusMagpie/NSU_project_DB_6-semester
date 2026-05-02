@@ -12,4 +12,12 @@ public class DatabaseConnection {
     public static Connection getConnection(String user, String password) throws SQLException {
         return DriverManager.getConnection(URL, user, password);
     }
+
+    public static boolean isConnectionAlive(Connection conn) {
+        try {
+            return conn != null && conn.isValid(2);
+        } catch (SQLException e) {
+            return false;
+        }
+    }
 }
