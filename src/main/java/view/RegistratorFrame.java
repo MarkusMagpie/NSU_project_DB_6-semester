@@ -5,6 +5,7 @@ import controller.MedicineController;
 import controller.OrderController;
 import model.Client;
 import model.Order;
+import utils.DatabaseConnection;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -33,8 +34,20 @@ public class RegistratorFrame extends JFrame {
         setTitle("Аптека - Регистратор");
         setResizable(false);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(900, 600);
+        setSize(1100, 600);
         setLocationRelativeTo(null);
+
+        JMenuBar menuBar = new JMenuBar();
+        JMenu systemMenu = new JMenu("Система");
+        JMenuItem reconnectItem = new JMenuItem("Сменить пользователя");
+        reconnectItem.addActionListener(e -> reLogin());
+        systemMenu.add(reconnectItem);
+        JMenuItem checkConnectionItem = new JMenuItem("Проверить соединение");
+        checkConnectionItem.addActionListener(e -> checkConnection());
+        systemMenu.add(checkConnectionItem);
+
+        menuBar.add(systemMenu);
+        setJMenuBar(menuBar);
 
         // вкладки
         JTabbedPane tabbedPane = new JTabbedPane();
@@ -43,11 +56,6 @@ public class RegistratorFrame extends JFrame {
         tabbedPane.addTab("Заказы", createOrdersPanel());
         tabbedPane.addTab("Создать заказ", createCreateOrderPanel());
         tabbedPane.addTab("Лекарства", createMedicinesPanel());
-//        tabbedPane.addTab("Незабранные заказы", createViewPanel("v_unclaimed_orders"));
-//        tabbedPane.addTab("Ожидающие компоненты", createViewPanel("v_waiting_customers"));
-//        tabbedPane.addTab("Заказы в производстве", createViewPanel("v_orders_in_production"));
-//        tabbedPane.addTab("Препараты для производства", createViewPanel(
-//                "v_required_medicines_for_production"));
 
         add(tabbedPane);
 
@@ -362,53 +370,32 @@ public class RegistratorFrame extends JFrame {
         return panel;
     }
 
-    // --------------------------------------------------------------------------- представления (4 вкладки)
-    private JPanel createViewPanel(String viewName) {
-        JPanel panel = new JPanel(new BorderLayout());
-        JTable table = new JTable();
-        JScrollPane scroll = new JScrollPane(table);
-        panel.add(scroll, BorderLayout.CENTER);
+    private void reLogin() {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
 
-        // загрузка данных в отдельном потоке
-        SwingUtilities.invokeLater(() -> refreshViewTable(table, viewName));
-        return panel;
+        new LoginDialog(null).setVisible(true);
+
+        dispose();
     }
 
-    // загружает данные из представления и заполняет ими table
-    private void refreshViewTable(JTable table, String viewName) {
-        try (Statement st = connection.createStatement();
-            ResultSet rs = st.executeQuery("SELECT * FROM lab_drug_store." + viewName)) {
+    private void checkConnection() {
+        boolean alive = DatabaseConnection.isConnectionAlive(connection);
+        String msg = alive ? "Соединение с БД активно" : "Соединение с БД потеряно";
+        System.out.println(msg);
+        JOptionPane.showMessageDialog(this, msg, "Статус соединения",
+                alive ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
 
-                // метаданные - количество столбцов и их имена
-                ResultSetMetaData meta = rs.getMetaData();
-                int columnCount = meta.getColumnCount();
-                Vector<String> columnNames = new Vector<>(); // имена столбцов - будут заголовками таблицы
-                for (int i = 1; i <= columnCount; i++) {
-                    columnNames.add(meta.getColumnName(i));
-                }
-
-                // сбор строк данных
-                Vector<Vector<Object>> data = new Vector<>();
-                while (rs.next()) {
-                    Vector<Object> row = new Vector<>();
-                    for (int i = 1; i <= columnCount; i++) {
-                        row.add(rs.getObject(i)); // запись значений ячейки в row
-                    }
-                    data.add(row);
-                }
-
-                // модель таблицы = данные + заголовки столбцов
-                DefaultTableModel model = new DefaultTableModel(data, columnNames) {
-                    @Override
-                    public boolean isCellEditable(int row, int column) {
-                        return false;
-                    }
-                };
-
-                table.setModel(model);
-        } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this,
-                    "Ошибка загрузки представления " + viewName + ": " + e.getMessage());
+        if (!alive) {
+            int option = JOptionPane.showConfirmDialog(this,
+                    "Соединение потеряно. Переподключиться?",
+                    "Ошибка", JOptionPane.YES_NO_OPTION);
+            if (option == JOptionPane.YES_OPTION) reLogin();
         }
     }
 }
