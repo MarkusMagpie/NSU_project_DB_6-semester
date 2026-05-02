@@ -59,6 +59,7 @@ GRANT SELECT ON "Заказы" TO storekeeper;
 GRANT SELECT ON "Рецепты" TO storekeeper;
 GRANT SELECT ON "Больные_клиенты" TO storekeeper;
 GRANT SELECT ON v_critical_medicines, v_medicine_stock, v_used_components TO storekeeper;
+GRANT SELECT ON lab_drug_store.v_used_components TO storekeeper;
 
 -- права для фармацевта
 -- может обновлять статус заказа (переводить в производство и в готов к выдаче)

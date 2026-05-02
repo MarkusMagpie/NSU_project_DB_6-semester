@@ -64,14 +64,15 @@ LIMIT 10;
 CREATE OR REPLACE VIEW v_used_components AS
 SELECT
     c.Component_id AS component_id,
-    o.order_id AS order_id,
     c.Name AS component_name,
+    o.Order_id AS order_id,
+    o.Дата_создания AS order_date,
     SUM(r.quantity_reserved) AS used_quantity
-FROM "Резерв_компонентов" AS r
-    JOIN "Заказы" AS o ON r.order_id = o.Order_id
-    JOIN "Компоненты" AS c ON r.component_id = c.Component_id
+FROM "Резерв_компонентов" r
+         JOIN "Заказы" o ON r.order_id = o.Order_id
+         JOIN "Компоненты" c ON r.component_id = c.Component_id
 WHERE o."Статус" IN ('выполнен', 'в производстве')
-GROUP BY c.Component_id, o.order_id, c.Name;
+GROUP BY c.Component_id, c.Name, o.Order_id, o.Дата_создания;
 
 -- 6.	Получить перечень и типы лекарств, достигших своей критической нормы или закончившихся.
 CREATE OR REPLACE VIEW v_critical_medicines AS
