@@ -81,8 +81,7 @@ public class LoginDialog extends JDialog {
             // new PharmacistFrame(conn).setVisible(true);
             return;
         } else if ("Администратор".equals(role)) {
-            // new AdminFrame(conn).setVisible(true);
-            return;
+             new AdminFrame(conn).setVisible(true);
         }
     }
 }
