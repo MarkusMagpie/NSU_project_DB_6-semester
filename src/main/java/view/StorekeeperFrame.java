@@ -3,9 +3,11 @@ package view;
 import controller.*;
 import model.ComponentBatch;
 import model.ComponentRequest;
+import model.MedicineRequest;
 import utils.DatabaseConnection;
 
 import javax.swing.*;
+import javax.swing.event.TableModelEvent;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -19,6 +21,9 @@ public class StorekeeperFrame extends JFrame {
     private final ComponentRequestController componentRequestController;
     private final ComponentController componentController;
     private final SupplierController supplierController;
+    private MedicineRequestController medicineRequestController;
+    private ReadyMedicineStockController readyMedicineStockController;
+    private MedicineController medicineController;
 
     public StorekeeperFrame(Connection connection) {
         this.connection = connection;
@@ -26,11 +31,14 @@ public class StorekeeperFrame extends JFrame {
         this.componentRequestController = new ComponentRequestController(connection);
         this.componentController = new ComponentController(connection);
         this.supplierController = new SupplierController(connection);
+        this.medicineRequestController = new MedicineRequestController(connection);
+        this.readyMedicineStockController = new ReadyMedicineStockController(connection);
+        this.medicineController = new MedicineController(connection);
 
         setTitle("Аптека - Кладовщик");
         setResizable(false);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(1100, 600);
+        setSize(1100, 700);
         setLocationRelativeTo(null);
 
         JMenuBar menuBar = new JMenuBar();
@@ -44,18 +52,31 @@ public class StorekeeperFrame extends JFrame {
         menuBar.add(systemMenu);
         setJMenuBar(menuBar);
 
-        JTabbedPane tabbedPane = new JTabbedPane();
-
         // вкладки для управления
-        tabbedPane.addTab("Партии компонентов", createBatchesPanel());
-        tabbedPane.addTab("Заявки на компоненты", createComponentRequestsPanel());
-
+        JTabbedPane managementPane = new JTabbedPane();
+        managementPane.addTab("Партии компонентов", createBatchesPanel());
+        managementPane.addTab("Заявки на компоненты", createComponentRequestsPanel());
+        managementPane.addTab("Заявки на готовые лекарства", createReadyMedicineRequestsPanel());
+        managementPane.addTab("Остатки готовых лекарств", createReadyMedicinesStockPanel());
         // вкладки - представления
-        tabbedPane.addTab("Критические лекарства", createCriticalMedicinesPanel());
-        tabbedPane.addTab("Остатки лекарств", createMedicineStockPanel());
-        tabbedPane.addTab("Использованные компоненты", createUsedComponentsPanel());
+        JTabbedPane viewsPane = new JTabbedPane();
+        viewsPane.addTab("Критические лекарства", createCriticalMedicinesPanel());
+        viewsPane.addTab("Остатки лекарств", createMedicineStockPanel());
+        viewsPane.addTab("Использованные компоненты", createUsedComponentsPanel());
 
-        add(tabbedPane);
+        JPanel mainPanel = new JPanel(new GridLayout(2, 1));
+        mainPanel.add(managementPane);
+        mainPanel.add(viewsPane);
+
+        add(mainPanel);
+
+        for (int i = 0; i < viewsPane.getTabCount(); i++) {
+            viewsPane.setBackgroundAt(i, new Color(165, 165, 165));
+        }
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, managementPane, viewsPane);
+        splitPane.setResizeWeight(0.5);
+        add(splitPane);
 
         // закытие окна -> закрытие соединения
         addWindowListener(new WindowAdapter() {
@@ -422,6 +443,178 @@ public class StorekeeperFrame extends JFrame {
         }
     }
 
+    // --------------------------------------------------------------------------- вкладка "Заявки на пополнение готовых лек-в" (просмотр, вставка)
+    private JPanel createReadyMedicineRequestsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        DefaultTableModel model = new DefaultTableModel(new String[]{"ID заявки", "Лекарство", "Количество", "Статус",
+                "Поставщик"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+        refreshReadyRequestsTable(model);
+
+        JButton addButton = new JButton("Создать заявку");
+        JButton statusButton = new JButton("Изменить статус");
+        JPanel btnPanel = new JPanel();
+        btnPanel.add(addButton);
+        btnPanel.add(statusButton);
+
+        addButton.addActionListener(e -> showAddReadyRequestDialog(model));
+
+        statusButton.addActionListener(e -> {
+            int selectedRow = table.getSelectedRow();
+            if (selectedRow == -1) {
+                JOptionPane.showMessageDialog(this, "Выберите заявку");
+                return;
+            }
+
+            int requestId = (int) model.getValueAt(selectedRow, 0);
+            String currentStatus = (String) model.getValueAt(selectedRow, 3);
+            changeReadyRequestStatus(requestId, currentStatus, model);
+        });
+
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void refreshReadyRequestsTable(DefaultTableModel model) {
+        model.setRowCount(0);
+
+        try {
+            List<MedicineRequest> requests = medicineRequestController.getAllRequests();
+            for (MedicineRequest r : requests) {
+                model.addRow(new Object[]{r.getRequestId(), r.getMedicineName(), r.getQuantity(), r.getStatus(),
+                        r.getSupplierName()
+                });
+            }
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Ошибка загрузки заявок: " + e.getMessage());
+        }
+    }
+
+    private void showAddReadyRequestDialog(DefaultTableModel model) {
+        JComboBox<String> medicineCombo = new JComboBox<>();
+        JComboBox<String> supplierCombo = new JComboBox<>();
+        try {
+            for (String m : medicineController.getAllMedicineNames()) medicineCombo.addItem(m);
+            for (String s : supplierController.getAllSupplierNames()) supplierCombo.addItem(s);
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Ошибка загрузки списков: " + e.getMessage());
+            return;
+        }
+        JTextField quantityField = new JTextField(10);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5,5,5,5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0; gbc.gridy = 0; panel.add(new JLabel("Лекарство:"), gbc);
+        gbc.gridx = 1; panel.add(medicineCombo, gbc);
+        gbc.gridy = 1; gbc.gridx = 0; panel.add(new JLabel("Количество:"), gbc);
+        gbc.gridx = 1; panel.add(quantityField, gbc);
+        gbc.gridy = 2; gbc.gridx = 0; panel.add(new JLabel("Поставщик:"), gbc);
+        gbc.gridx = 1; panel.add(supplierCombo, gbc);
+
+        int result = JOptionPane.showConfirmDialog(this, panel, "Новая заявка на готовое лекарство", JOptionPane.OK_CANCEL_OPTION);
+        if (result == JOptionPane.OK_OPTION) {
+            try {
+                String medName = (String) medicineCombo.getSelectedItem();
+                int medicineId = medicineController.getMedicineIdByName(medName);
+                int quantity = Integer.parseInt(quantityField.getText().trim());
+                String suppName = (String) supplierCombo.getSelectedItem();
+                int supplierId = supplierController.getSupplierIdByName(suppName);
+                MedicineRequest request = new MedicineRequest(0, medicineId, quantity, "новая", supplierId);
+                medicineRequestController.addRequest(request);
+                refreshReadyRequestsTable(model);
+                JOptionPane.showMessageDialog(this, "Заявка создана");
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(this, "Ошибка создания заявки на пополнение готовых лекарств: " + e.getMessage());
+            }
+        }
+    }
+
+    private void changeReadyRequestStatus(int requestId, String currentStatus, DefaultTableModel model) {
+        String[] allowedStatuses = {"новая", "отправлена", "получена"};
+        String newStatus = (String) JOptionPane.showInputDialog(this, "Выберите новый статус:",
+                "Изменение статуса", JOptionPane.QUESTION_MESSAGE, null, allowedStatuses, currentStatus);
+
+        if (newStatus != null && !newStatus.equals(currentStatus)) {
+            try {
+                medicineRequestController.updateRequestStatus(requestId, newStatus);
+                refreshReadyRequestsTable(model);
+                JOptionPane.showMessageDialog(this, "Статус изменен на " + newStatus);
+            } catch (SQLException e) {
+                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
+            }
+        }
+    }
+
+    // --------------------------------------------------------------------------- изменение остатка готовых лекарств
+    private JPanel createReadyMedicinesStockPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        DefaultTableModel model = new DefaultTableModel(new String[]{"ID лекарства", "Название", "Остаток"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return col == 2; // только остаток редактирую
+            }
+        };
+        JTable table = new JTable(model);
+        refreshReadyMedicinesStock(model);
+
+        // сохранение изменений при завершении редактирования
+        table.getModel().addTableModelListener(e -> {
+            if (e.getType() == TableModelEvent.UPDATE) {
+                int row = e.getFirstRow();
+                if (row >= 0) {
+                    int medicineId = (int) model.getValueAt(row, 0);
+                    int newStock;
+                    try {
+                        newStock = Integer.parseInt(model.getValueAt(row, 2).toString());
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(this, "Введено неверное число");
+                        refreshReadyMedicinesStock(model);
+                        return;
+                    }
+
+                    try {
+                        readyMedicineStockController.updateStock(medicineId, newStock);
+                        JOptionPane.showMessageDialog(this, "Остаток обновлен");
+                    } catch (SQLException ex) {
+                        JOptionPane.showMessageDialog(this, "Ошибка обновления: " + ex.getMessage());
+                        refreshReadyMedicinesStock(model);
+                    }
+                }
+            }
+        });
+
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void refreshReadyMedicinesStock(DefaultTableModel model) {
+        model.setRowCount(0);
+        String sql = "SELECT g.Medicine_id, l.Название, g.Остаток FROM lab_drug_store.Готовые_лекарства AS g " +
+                "JOIN lab_drug_store.Лекарства AS l ON g.Medicine_id = l.Medicine_id " +
+                "ORDER BY g.Medicine_id";
+
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getInt("Medicine_id"),
+                        rs.getString("Название"),
+                        rs.getInt("Остаток")
+                });
+            }
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Ошибка загрузки: " + e.getMessage());
+        }
+    }
+
     // --------------------------------------------------------------------------- вкладки представлений
     private JPanel createCriticalMedicinesPanel() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -469,7 +662,7 @@ public class StorekeeperFrame extends JFrame {
 
         panel.add(scroll, BorderLayout.CENTER);
 
-        // загрузка данных с учётом фильтров
+        // загрузка данных с учетом фильтров
         Runnable loadData = () -> {
             String search = searchField.getText().trim();
             String sortOption = (String) sortCombo.getSelectedItem();
