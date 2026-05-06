@@ -20,20 +20,9 @@ public class Order {
     }
 
     public int getOrderId() { return orderId; }
-    public void setOrderId(int orderId) { this.orderId = orderId; }
-
     public Timestamp getCreationDate() { return creationDate; }
-    public void setCreationDate(Timestamp creationDate) { this.creationDate = creationDate; }
-
     public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
-
     public Timestamp getCompletionTime() { return completionTime; }
-    public void setCompletionTime(Timestamp completionTime) { this.completionTime = completionTime; }
-
     public int getPrice() { return price; }
-    public void setPrice(int price) { this.price = price; }
-
     public String getMedicineName() { return medicineName; }
-    public void setMedicineName(String medicineName) { this.medicineName = medicineName; }
 }

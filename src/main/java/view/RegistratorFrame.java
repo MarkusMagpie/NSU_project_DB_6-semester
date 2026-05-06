@@ -5,6 +5,7 @@ import controller.MedicineController;
 import controller.OrderController;
 import model.Client;
 import model.Order;
+import utils.DatabaseConnection;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -12,7 +13,6 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.sql.*;
-import java.util.Vector;
 import java.util.List;
 
 
@@ -33,23 +33,47 @@ public class RegistratorFrame extends JFrame {
         setTitle("Аптека - Регистратор");
         setResizable(false);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(900, 600);
+        setSize(1200, 700);
         setLocationRelativeTo(null);
 
-        // вкладки
-        JTabbedPane tabbedPane = new JTabbedPane();
+        JMenuBar menuBar = new JMenuBar();
+        JMenu systemMenu = new JMenu("Система");
+        JMenuItem reconnectItem = new JMenuItem("Сменить пользователя");
+        reconnectItem.addActionListener(e -> reLogin());
+        systemMenu.add(reconnectItem);
+        JMenuItem checkConnectionItem = new JMenuItem("Проверить соединение");
+        checkConnectionItem.addActionListener(e -> checkConnection());
+        systemMenu.add(checkConnectionItem);
 
-        tabbedPane.addTab("Больные клиенты", createClientsPanel());
-        tabbedPane.addTab("Заказы", createOrdersPanel());
-        tabbedPane.addTab("Создать заказ", createCreateOrderPanel());
-        tabbedPane.addTab("Лекарства", createMedicinesPanel());
-//        tabbedPane.addTab("Незабранные заказы", createViewPanel("v_unclaimed_orders"));
-//        tabbedPane.addTab("Ожидающие компоненты", createViewPanel("v_waiting_customers"));
-//        tabbedPane.addTab("Заказы в производстве", createViewPanel("v_orders_in_production"));
-//        tabbedPane.addTab("Препараты для производства", createViewPanel(
-//                "v_required_medicines_for_production"));
+        menuBar.add(systemMenu);
+        setJMenuBar(menuBar);
 
-        add(tabbedPane);
+        // вкладки для управления
+        JTabbedPane managementPane = new JTabbedPane();
+        managementPane.addTab("Больные клиенты", createClientsPanel());
+        managementPane.addTab("Заказы", createOrdersPanel());
+        managementPane.addTab("Создать заказ", createCreateOrderPanel());
+        managementPane.addTab("Лекарства", createMedicinesPanel());
+        // вкладки - представления
+        JTabbedPane viewsPane = new JTabbedPane();
+        viewsPane.addTab("Незабранные заказы", createUnclaimedOrdersPanel());
+        viewsPane.addTab("Ожидающие компоненты", createWaitingCustomersPanel());
+        viewsPane.addTab("Заказы в производстве", createOrdersInProductionPanel());
+        viewsPane.addTab("Препараты для производства", createRequiredMedicinesPanel());
+
+        JPanel mainPanel = new JPanel(new GridLayout(2, 1));
+        mainPanel.add(managementPane);
+        mainPanel.add(viewsPane);
+
+        add(mainPanel);
+
+        for (int i = 0; i < viewsPane.getTabCount(); i++) {
+            viewsPane.setBackgroundAt(i, new Color(165, 165, 165));
+        }
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, managementPane, viewsPane);
+        splitPane.setResizeWeight(0.5);
+        add(splitPane);
 
         // закытие окна -> закрытие соединения
         addWindowListener(new WindowAdapter() {
@@ -362,53 +386,522 @@ public class RegistratorFrame extends JFrame {
         return panel;
     }
 
-    // --------------------------------------------------------------------------- представления (4 вкладки)
-    private JPanel createViewPanel(String viewName) {
+    // --------------------------------------------------------------------------- представления
+    private JPanel createUnclaimedOrdersPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        JTable table = new JTable();
-        JScrollPane scroll = new JScrollPane(table);
-        panel.add(scroll, BorderLayout.CENTER);
 
-        // загрузка данных в отдельном потоке
-        SwingUtilities.invokeLater(() -> refreshViewTable(table, viewName));
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+
+        JLabel text = new JLabel("Сведения о покупателях, не забравших заказ (просрочка более 1 часа).");
+        text.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topPanel.add(text);
+
+        // панель фильтров
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JTextField nameSearchField = new JTextField(15);
+        JTextField overdueHoursField = new JTextField(3);
+        JComboBox<String> sortCombo = new JComboBox<>(new String[]{
+                "по времени готовности (возр.)",
+                "по времени готовности (убыв.)",
+                "по просрочке (возр.)",
+                "по просрочке (убыв.)",
+                "по клиенту (А-Я)",
+                "по клиенту (Я-А)"
+        });
+        JButton refreshButton = new JButton("Обновить");
+
+        filterPanel.add(new JLabel("ФИО клиента:"));
+        filterPanel.add(nameSearchField);
+        filterPanel.add(new JLabel("Просрочка > часов:"));
+        filterPanel.add(overdueHoursField);
+        filterPanel.add(new JLabel("Сортировка:"));
+        filterPanel.add(sortCombo);
+        filterPanel.add(refreshButton);
+
+        topPanel.add(filterPanel);
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        // таблица
+        DefaultTableModel model = new DefaultTableModel(new String[]{
+                "ID клиента", "ФИО", "Телефон", "Адрес", "ID заказа", "Время готовности", "Просрочка (интервал)"
+        }, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        Runnable loadData = () -> {
+            String nameSearch = nameSearchField.getText().trim();
+            String overdueHoursStr = overdueHoursField.getText().trim();
+            String sort = (String) sortCombo.getSelectedItem();
+            refreshUnclaimedOrdersTable(model, nameSearch, overdueHoursStr, sort);
+        };
+
+        refreshButton.addActionListener(e -> loadData.run());
+        SwingUtilities.invokeLater(loadData);
+
         return panel;
     }
 
-    // загружает данные из представления и заполняет ими table
-    private void refreshViewTable(JTable table, String viewName) {
-        try (Statement st = connection.createStatement();
-            ResultSet rs = st.executeQuery("SELECT * FROM lab_drug_store." + viewName)) {
+    private void refreshUnclaimedOrdersTable(DefaultTableModel model, String nameSearch, String overdueHoursStr, String sortOption) {
+        model.setRowCount(0);
+        StringBuilder sql = new StringBuilder(
+                "SELECT client_id, full_name, phone, address, order_id, completion_time, overdue_interval " +
+                        "FROM lab_drug_store.v_unclaimed_orders"
+        );
 
-                // метаданные - количество столбцов и их имена
-                ResultSetMetaData meta = rs.getMetaData();
-                int columnCount = meta.getColumnCount();
-                Vector<String> columnNames = new Vector<>(); // имена столбцов - будут заголовками таблицы
-                for (int i = 1; i <= columnCount; i++) {
-                    columnNames.add(meta.getColumnName(i));
-                }
+        boolean hasWhere = false;
+        if (!nameSearch.isEmpty()) {
+            sql.append(" WHERE full_name ILIKE ?");
+            hasWhere = true;
+        }
+        if (!overdueHoursStr.isEmpty()) {
+            try {
+                if (hasWhere)
+                    sql.append(" AND");
+                else
+                    sql.append(" WHERE");
+                sql.append(" EXTRACT(EPOCH FROM overdue_interval)/3600 > ?");
+            } catch (NumberFormatException ignored) {}
+        }
 
-                // сбор строк данных
-                Vector<Vector<Object>> data = new Vector<>();
-                while (rs.next()) {
-                    Vector<Object> row = new Vector<>();
-                    for (int i = 1; i <= columnCount; i++) {
-                        row.add(rs.getObject(i)); // запись значений ячейки в row
-                    }
-                    data.add(row);
-                }
+        sql.append(switch (sortOption) {
+            case "по времени готовности (возр.)" -> " ORDER BY completion_time ASC";
+            case "по времени готовности (убыв.)" -> " ORDER BY completion_time DESC";
+            case "по просрочке (возр.)" -> " ORDER BY overdue_interval ASC";
+            case "по просрочке (убыв.)" -> " ORDER BY overdue_interval DESC";
+            case "по клиенту (А-Я)" -> " ORDER BY full_name ASC";
+            case "по клиенту (Я-А)" -> " ORDER BY full_name DESC";
+            default -> " ORDER BY completion_time ASC";
+        });
 
-                // модель таблицы = данные + заголовки столбцов
-                DefaultTableModel model = new DefaultTableModel(data, columnNames) {
-                    @Override
-                    public boolean isCellEditable(int row, int column) {
-                        return false;
-                    }
-                };
-
-                table.setModel(model);
+        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (!nameSearch.isEmpty()) {
+                ps.setString(paramIndex++, "%" + nameSearch + "%");
+            }
+            if (!overdueHoursStr.isEmpty()) {
+                try {
+                    int hours = Integer.parseInt(overdueHoursStr);
+                    ps.setDouble(paramIndex++, (double) hours);
+                } catch (NumberFormatException ignored) {}
+            }
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getInt("client_id"),
+                        rs.getString("full_name"),
+                        rs.getString("phone"),
+                        rs.getString("address"),
+                        rs.getInt("order_id"),
+                        rs.getTimestamp("completion_time"),
+                        rs.getObject("overdue_interval") // Interval тип
+                });
+            }
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(this,
-                    "Ошибка загрузки представления " + viewName + ": " + e.getMessage());
+            if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
+                int option = JOptionPane.showConfirmDialog(this,
+                        "Соединение потеряно. Переподключиться?",
+                        "Ошибка", JOptionPane.YES_NO_OPTION);
+                if (option == JOptionPane.YES_OPTION) reLogin();
+            } else {
+                JOptionPane.showMessageDialog(this, "Ошибка загрузки данных: " + e.getMessage());
+            }
+            e.printStackTrace();
+        }
+    }
+
+
+
+    private JPanel createWaitingCustomersPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+
+        JLabel text = new JLabel("Покупатели, ожидающие прибытия медикаментов на склад");
+        text.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topPanel.add(text);
+
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JTextField nameSearchField = new JTextField(15);
+        JComboBox<String> typeCombo = new JComboBox<>(new String[]{"Все типы", "готовое", "изготавливаемое"});
+        JComboBox<String> sortCombo = new JComboBox<>(new String[]{
+                "по клиенту (А-Я)",
+                "по клиенту (Я-А)",
+                "по лекарству (А-Я)",
+                "по лекарству (Я-А)"
+        });
+        JButton refreshButton = new JButton("Обновить");
+
+        filterPanel.add(new JLabel("ФИО клиента:"));
+        filterPanel.add(nameSearchField);
+        filterPanel.add(new JLabel("Тип лекарства:"));
+        filterPanel.add(typeCombo);
+        filterPanel.add(new JLabel("Сортировка:"));
+        filterPanel.add(sortCombo);
+        filterPanel.add(refreshButton);
+
+        topPanel.add(filterPanel);
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        DefaultTableModel model = new DefaultTableModel(new String[]{
+                "ID клиента", "ФИО", "Телефон", "Адрес", "ID заказа", "Лекарство", "Тип"
+        }, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        Runnable loadData = () -> {
+            String nameSearch = nameSearchField.getText().trim();
+            String type = (String) typeCombo.getSelectedItem();
+            String sort = (String) sortCombo.getSelectedItem();
+            refreshWaitingCustomersTable(model, nameSearch, type, sort);
+        };
+
+        refreshButton.addActionListener(e -> loadData.run());
+        SwingUtilities.invokeLater(loadData);
+
+        return panel;
+    }
+
+    private void refreshWaitingCustomersTable(DefaultTableModel model, String nameSearch, String type, String sortOption) {
+        model.setRowCount(0);
+        StringBuilder sql = new StringBuilder(
+                "SELECT client_id, full_name, phone, address, order_id, medicine_name, medicine_type " +
+                        "FROM lab_drug_store.v_waiting_customers"
+        );
+
+        boolean hasWhere = false;
+        if (!nameSearch.isEmpty()) {
+            sql.append(" WHERE full_name ILIKE ?");
+            hasWhere = true;
+        }
+        if (!"Все типы".equals(type)) {
+            if (hasWhere) sql.append(" AND");
+            else sql.append(" WHERE");
+            sql.append(" medicine_type = ?");
+        }
+
+        sql.append(switch (sortOption) {
+            case "по клиенту (А-Я)" -> " ORDER BY full_name ASC";
+            case "по клиенту (Я-А)" -> " ORDER BY full_name DESC";
+            case "по лекарству (А-Я)" -> " ORDER BY medicine_name ASC";
+            case "по лекарству (Я-А)" -> " ORDER BY medicine_name DESC";
+            default -> " ORDER BY full_name ASC";
+        });
+
+        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (!nameSearch.isEmpty()) {
+                ps.setString(paramIndex++, "%" + nameSearch + "%");
+            }
+            if (!"Все типы".equals(type)) {
+                ps.setString(paramIndex++, "готовое".equals(type) ? "готовое" : "изготавливаемое");
+            }
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getInt("client_id"),
+                        rs.getString("full_name"),
+                        rs.getString("phone"),
+                        rs.getString("address"),
+                        rs.getInt("order_id"),
+                        rs.getString("medicine_name"),
+                        rs.getString("medicine_type")
+                });
+            }
+        } catch (SQLException e) {
+            if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
+                int option = JOptionPane.showConfirmDialog(this,
+                        "Соединение потеряно. Переподключиться?",
+                        "Ошибка", JOptionPane.YES_NO_OPTION);
+                if (option == JOptionPane.YES_OPTION) reLogin();
+            } else {
+                JOptionPane.showMessageDialog(this, "Ошибка загрузки данных: " + e.getMessage());
+            }
+            e.printStackTrace();
+        }
+    }
+
+
+
+    private JPanel createOrdersInProductionPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+
+        JLabel text = new JLabel("Заказы, находящиеся в производстве");
+        text.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topPanel.add(text);
+
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JTextField medicineSearchField = new JTextField(15);
+        JTextField customerSearchField = new JTextField(15);
+        JComboBox<String> sortCombo = new JComboBox<>(new String[]{
+                "по дате создания (возр.)",
+                "по дате создания (убыв.)",
+                "по лекарству (А-Я)",
+                "по лекарству (Я-А)",
+                "по клиенту (А-Я)",
+                "по клиенту (Я-А)"
+        });
+        JButton refreshButton = new JButton("Обновить");
+
+        filterPanel.add(new JLabel("Лекарство:"));
+        filterPanel.add(medicineSearchField);
+        filterPanel.add(new JLabel("Клиент:"));
+        filterPanel.add(customerSearchField);
+        filterPanel.add(new JLabel("Сортировка:"));
+        filterPanel.add(sortCombo);
+        filterPanel.add(refreshButton);
+
+        topPanel.add(filterPanel);
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        DefaultTableModel model = new DefaultTableModel(new String[]{
+                "ID заказа", "Статус", "Дата создания", "Лекарство", "Клиент"
+        }, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        Runnable loadData = () -> {
+            String medicine = medicineSearchField.getText().trim();
+            String customer = customerSearchField.getText().trim();
+            String sort = (String) sortCombo.getSelectedItem();
+            refreshOrdersInProductionTable(model, medicine, customer, sort);
+        };
+
+        refreshButton.addActionListener(e -> loadData.run());
+        SwingUtilities.invokeLater(loadData);
+
+        return panel;
+    }
+
+    private void refreshOrdersInProductionTable(DefaultTableModel model, String medicine, String customer, String sortOption) {
+        model.setRowCount(0);
+        StringBuilder sql = new StringBuilder(
+                "SELECT order_id, status, creation_date, medicine_name, customer_name " +
+                        "FROM lab_drug_store.v_orders_in_production"
+        );
+
+        boolean hasWhere = false;
+        if (!medicine.isEmpty()) {
+            sql.append(" WHERE medicine_name ILIKE ?");
+            hasWhere = true;
+        }
+        if (!customer.isEmpty()) {
+            if (hasWhere) sql.append(" AND");
+            else sql.append(" WHERE");
+            sql.append(" customer_name ILIKE ?");
+        }
+
+        sql.append(switch (sortOption) {
+            case "по дате создания (возр.)" -> " ORDER BY creation_date ASC";
+            case "по дате создания (убыв.)" -> " ORDER BY creation_date DESC";
+            case "по лекарству (А-Я)" -> " ORDER BY medicine_name ASC";
+            case "по лекарству (Я-А)" -> " ORDER BY medicine_name DESC";
+            case "по клиенту (А-Я)" -> " ORDER BY customer_name ASC";
+            case "по клиенту (Я-А)" -> " ORDER BY customer_name DESC";
+            default -> " ORDER BY creation_date ASC";
+        });
+
+        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (!medicine.isEmpty()) {
+                ps.setString(paramIndex++, "%" + medicine + "%");
+            }
+            if (!customer.isEmpty()) {
+                ps.setString(paramIndex++, "%" + customer + "%");
+            }
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getInt("order_id"),
+                        rs.getString("status"),
+                        rs.getTimestamp("creation_date"),
+                        rs.getString("medicine_name"),
+                        rs.getString("customer_name")
+                });
+            }
+        } catch (SQLException e) {
+            if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
+                int option = JOptionPane.showConfirmDialog(this,
+                        "Соединение потеряно. Переподключиться?",
+                        "Ошибка", JOptionPane.YES_NO_OPTION);
+                if (option == JOptionPane.YES_OPTION) reLogin();
+            } else {
+                JOptionPane.showMessageDialog(this, "Ошибка загрузки данных: " + e.getMessage());
+            }
+            e.printStackTrace();
+        }
+    }
+
+
+
+    private JPanel createRequiredMedicinesPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+
+        JPanel topPanel = new JPanel();
+        topPanel.setLayout(new BoxLayout(topPanel, BoxLayout.Y_AXIS));
+
+        JLabel text = new JLabel("Препараты, требующиеся для заказов, находящихся в производстве");
+        text.setAlignmentX(Component.CENTER_ALIGNMENT);
+        topPanel.add(text);
+
+        JPanel filterPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JTextField orderIdField = new JTextField(10);
+        JTextField medicineSearchField = new JTextField(15);
+        JComboBox<String> sortCombo = new JComboBox<>(new String[]{
+                "по ID заказа (возр.)",
+                "по ID заказа (убыв.)",
+                "по лекарству (А-Я)",
+                "по лекарству (Я-А)",
+                "по количеству (возр.)",
+                "по количеству (убыв.)"
+        });
+        JButton refreshButton = new JButton("Обновить");
+
+        filterPanel.add(new JLabel("ID заказа:"));
+        filterPanel.add(orderIdField);
+        filterPanel.add(new JLabel("Лекарство:"));
+        filterPanel.add(medicineSearchField);
+        filterPanel.add(new JLabel("Сортировка:"));
+        filterPanel.add(sortCombo);
+        filterPanel.add(refreshButton);
+
+        topPanel.add(filterPanel);
+        panel.add(topPanel, BorderLayout.NORTH);
+
+        DefaultTableModel model = new DefaultTableModel(new String[]{
+                "ID заказа", "Лекарство", "Требуемое количество (ед.)"
+        }, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        Runnable loadData = () -> {
+            String orderIdStr = orderIdField.getText().trim();
+            String medicine = medicineSearchField.getText().trim();
+            String sort = (String) sortCombo.getSelectedItem();
+            refreshRequiredMedicinesTable(model, orderIdStr, medicine, sort);
+        };
+
+        refreshButton.addActionListener(e -> loadData.run());
+        SwingUtilities.invokeLater(loadData);
+
+        return panel;
+    }
+
+    private void refreshRequiredMedicinesTable(DefaultTableModel model, String orderIdStr, String medicine, String sortOption) {
+        model.setRowCount(0);
+        StringBuilder sql = new StringBuilder(
+                "SELECT order_id, medicine_name, required_quantity FROM lab_drug_store.v_required_medicines_for_production"
+        );
+
+        boolean hasWhere = false;
+        if (!orderIdStr.isEmpty()) {
+            try {
+                sql.append(" WHERE order_id = ?");
+                hasWhere = true;
+            } catch (NumberFormatException ignored) {}
+        }
+        if (!medicine.isEmpty()) {
+            if (hasWhere)
+                sql.append(" AND");
+            else
+                sql.append(" WHERE");
+            sql.append(" medicine_name ILIKE ?");
+        }
+
+        sql.append(switch (sortOption) {
+            case "по ID заказа (возр.)" -> " ORDER BY order_id ASC";
+            case "по ID заказа (убыв.)" -> " ORDER BY order_id DESC";
+            case "по лекарству (А-Я)" -> " ORDER BY medicine_name ASC";
+            case "по лекарству (Я-А)" -> " ORDER BY medicine_name DESC";
+            case "по количеству (возр.)" -> " ORDER BY required_quantity ASC";
+            case "по количеству (убыв.)" -> " ORDER BY required_quantity DESC";
+            default -> " ORDER BY order_id ASC";
+        });
+
+        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+            int paramIndex = 1;
+            if (!orderIdStr.isEmpty()) {
+                try {
+                    int orderId = Integer.parseInt(orderIdStr);
+                    ps.setInt(paramIndex++, orderId);
+                } catch (NumberFormatException ignored) {}
+            }
+
+            if (!medicine.isEmpty()) {
+                ps.setString(paramIndex++, "%" + medicine + "%");
+            }
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getInt("order_id"),
+                        rs.getString("medicine_name"),
+                        rs.getBigDecimal("required_quantity")
+                });
+            }
+        } catch (SQLException e) {
+            if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
+                int option = JOptionPane.showConfirmDialog(this,
+                        "Соединение потеряно. Переподключиться?",
+                        "Ошибка", JOptionPane.YES_NO_OPTION);
+                if (option == JOptionPane.YES_OPTION) reLogin();
+            } else {
+                JOptionPane.showMessageDialog(this, "Ошибка загрузки данных: " + e.getMessage());
+            }
+            e.printStackTrace();
+        }
+    }
+
+    // --------------------------------------------------------------------------- соединение с бд
+    private void reLogin() {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+
+        new LoginDialog(null).setVisible(true);
+
+        dispose();
+    }
+
+    private void checkConnection() {
+        boolean alive = DatabaseConnection.isConnectionAlive(connection);
+        String msg = alive ? "Соединение с БД активно" : "Соединение с БД потеряно";
+        System.out.println(msg);
+        JOptionPane.showMessageDialog(this, msg, "Статус соединения",
+                alive ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+
+        if (!alive) {
+            int option = JOptionPane.showConfirmDialog(this,
+                    "Соединение потеряно. Переподключиться?",
+                    "Ошибка", JOptionPane.YES_NO_OPTION);
+            if (option == JOptionPane.YES_OPTION) reLogin();
         }
     }
 }

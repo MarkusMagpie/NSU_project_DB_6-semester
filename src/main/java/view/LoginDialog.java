@@ -66,8 +66,8 @@ public class LoginDialog extends JDialog {
                 dispose();
             } catch (SQLException ex) {
                 System.out.println(ex.getMessage());
-                JOptionPane.showMessageDialog(this, "Ошибка подключения к бд: " + ex.getMessage(),
-                        "Ошибка", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Ошибка подключения к бд", "Ошибка",
+                        JOptionPane.ERROR_MESSAGE);
             }
         });
     }
@@ -78,11 +78,9 @@ public class LoginDialog extends JDialog {
         }  else if ("Кладовщик".equals(role)) {
              new StorekeeperFrame(conn).setVisible(true);
         } else if ("Фармацевт".equals(role)) {
-            // new PharmacistFrame(conn).setVisible(true);
-            return;
+             new PharmacistFrame(conn).setVisible(true);
         } else if ("Администратор".equals(role)) {
-            // new AdminFrame(conn).setVisible(true);
-            return;
+             new AdminFrame(conn).setVisible(true);
         }
     }
 }
