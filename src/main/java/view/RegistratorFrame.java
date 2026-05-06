@@ -54,6 +54,7 @@ public class RegistratorFrame extends JFrame {
         managementPane.addTab("Заказы", createOrdersPanel());
         managementPane.addTab("Создать заказ", createCreateOrderPanel());
         managementPane.addTab("Лекарства", createMedicinesPanel());
+        managementPane.addTab("Состав изготавливаемых лекарств", createCompositionPanel());
         // вкладки - представления
         JTabbedPane viewsPane = new JTabbedPane();
         viewsPane.addTab("Незабранные заказы", createUnclaimedOrdersPanel());
@@ -204,6 +205,48 @@ public class RegistratorFrame extends JFrame {
         return panel;
     }
 
+    // --------------------------------------------------------------------------- Состав лекарств (просмотр)
+    private JPanel createCompositionPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        DefaultTableModel model = new DefaultTableModel(new String[]{"Компонент", "Изготавливаемое лекарство",
+                "Количество (ед.)"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int col) {
+                return false;
+            }
+        };
+        JTable table = new JTable(model);
+
+        // загрузка данных о составе лекарств
+        String sql =
+                "SELECT c.Name AS component_name, l.Название AS medicine_name, r.Количество AS quantity " +
+                        "FROM lab_drug_store.Изготавливаемые_лекарства as im " +
+                        "JOIN lab_drug_store.Технологические_карты as t ON im.Medicine_id = t.Medicine_id " +
+                        "JOIN lab_drug_store.Рецептуры as r ON t.Technology_id = r.Технологическая_карта " +
+
+                        "JOIN lab_drug_store.Компоненты as c ON r.Компоненты = c.Component_id " +
+
+                        "JOIN lab_drug_store.Лекарства as l ON im.Medicine_id = l.Medicine_id " +
+                        "ORDER BY l.Название, c.Name";
+
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                model.addRow(new Object[]{
+                        rs.getString("component_name"),
+                        rs.getString("medicine_name"),
+                        rs.getBigDecimal("quantity")
+                });
+            }
+        } catch (SQLException e) {
+            JOptionPane.showMessageDialog(this, "Ошибка загрузки состава лекарств: " + e.getMessage());
+        }
+
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        return panel;
+    }
+
     // --------------------------------------------------------------------------- заказы (просмотр, создание)
     private JPanel createOrdersPanel() {
         JPanel panel = new JPanel(new BorderLayout());
@@ -301,6 +344,7 @@ public class RegistratorFrame extends JFrame {
         }
     }
 
+    // вкладка "Создать заказ"
     private JPanel createCreateOrderPanel() {
         JPanel panel = new JPanel(new GridBagLayout());
         GridBagConstraints gbc = new GridBagConstraints();
@@ -336,7 +380,8 @@ public class RegistratorFrame extends JFrame {
         gbc.gridx=1; JTextField usageField = new JTextField(20); panel.add(usageField, gbc);
         gbc.gridx=0; gbc.gridy=4; panel.add(new JLabel("Дата выписки (ГГГГ-ММ-ДД):"), gbc);
         gbc.gridx=1; JTextField dateField = new JTextField(10); panel.add(dateField, gbc);
-        gbc.gridx=0; gbc.gridy=5; panel.add(new JLabel("Количество лекарства:"), gbc);
+        gbc.gridx=0; gbc.gridy=5;
+        panel.add(new JLabel("Количество лекарства:"), gbc);
         gbc.gridx=1; JTextField quantityField = new JTextField(10); panel.add(quantityField, gbc);
         gbc.gridx=0; gbc.gridy=6; panel.add(new JLabel("ФИО врача:"), gbc);
         gbc.gridx=1; JTextField doctorField = new JTextField(20); panel.add(doctorField, gbc);
@@ -363,7 +408,7 @@ public class RegistratorFrame extends JFrame {
                 String doctorName = doctorField.getText().trim();
                 String signature = signatureField.getText().trim();
                 String stamp = stampField.getText().trim();
-                int price = orderController.getMedicinePriceById(medicineId);
+                int price = orderController.getMedicinePriceById(medicineId) * quantity;
 
                 int newOrderId = orderController.createOrder(clientId, medicineId, diagnosis,
                         usage, issueDate, quantity, doctorName, signature, stamp, price);

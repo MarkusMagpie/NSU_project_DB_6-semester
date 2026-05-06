@@ -185,6 +185,32 @@ public class StorekeeperFrame extends JFrame {
         }
     }
 
+    private static class ComponentItem {
+        private final int id;
+        private final String name;
+
+        public ComponentItem(int id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+        public int getId() { return id; }
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    private void loadComponentsToCombo(JComboBox<ComponentItem> combo) throws SQLException {
+        String sql = "SELECT Component_id, Name FROM lab_drug_store.Компоненты ORDER BY Name";
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            while (rs.next()) {
+                combo.addItem(new ComponentItem(rs.getInt("Component_id"), rs.getString("Name")));
+            }
+        }
+    }
+
     private void showAddBatchDialog(DefaultTableModel model) throws SQLException {
         int nextId;
         try {
@@ -201,7 +227,7 @@ public class StorekeeperFrame extends JFrame {
                         "Ошибка", JOptionPane.YES_NO_OPTION);
                 if (option == JOptionPane.YES_OPTION) reLogin();
             } else {
-                JOptionPane.showMessageDialog(this, "Ошибка получения следующего ID партии: " + e.getMessage());
+                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
             }
 
             return;
@@ -222,11 +248,32 @@ public class StorekeeperFrame extends JFrame {
         JLabel idLabel = new JLabel("ID новой партии компонентов: " + nextId);
         panel.add(idLabel, gbc);
 
+//        gbc.gridwidth = 1;
+//        gbc.gridy = 1; gbc.gridx = 0;
+//        panel.add(new JLabel("ID компонента:"), gbc);
+//        gbc.gridx = 1;
+//        panel.add(componentIdField, gbc);
+
         gbc.gridwidth = 1;
         gbc.gridy = 1; gbc.gridx = 0;
-        panel.add(new JLabel("ID компонента:"), gbc);
+        panel.add(new JLabel("Компонент:"), gbc);
+        JComboBox<ComponentItem> componentCombo = new JComboBox<>();
+        try {
+            loadComponentsToCombo(componentCombo);
+        } catch (SQLException e) {
+            if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
+                int option = JOptionPane.showConfirmDialog(this,
+                        "Соединение потеряно. Переподключиться?",
+                        "Ошибка", JOptionPane.YES_NO_OPTION);
+                if (option == JOptionPane.YES_OPTION) reLogin();
+            } else {
+                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
+            }
+
+            return;
+        }
         gbc.gridx = 1;
-        panel.add(componentIdField, gbc);
+        panel.add(componentCombo, gbc);
 
         gbc.gridy = 2; gbc.gridx = 0;
         panel.add(new JLabel("Дата поступления (ГГГГ-ММ-ДД):"), gbc);
@@ -239,7 +286,7 @@ public class StorekeeperFrame extends JFrame {
         panel.add(quantityField, gbc);
 
         gbc.gridy = 4; gbc.gridx = 0;
-        panel.add(new JLabel("ID заявки:"), gbc);
+        panel.add(new JLabel("ID заявки для компонента:"), gbc);
         gbc.gridx = 1;
         panel.add(requestIdField, gbc);
 
