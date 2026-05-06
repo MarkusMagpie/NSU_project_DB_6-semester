@@ -232,13 +232,13 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
     BEGIN
         IF NEW.Статус = 'в производстве' AND OLD.Статус != 'в производстве' THEN
             SELECT Тип INTO med_type
-            FROM Лекарства
+            FROM lab_drug_store.Лекарства
             WHERE Medicine_id = NEW.Medicine_id;
 
             IF med_type = 'изготавливаемое' THEN
                 -- получаю тех карту
                 SELECT Technology_id INTO v_technology_id
-                FROM Технологические_карты
+                FROM lab_drug_store.Технологические_карты
                 WHERE Medicine_id = NEW.Medicine_id;
 
                 IF v_technology_id IS NULL THEN
@@ -247,20 +247,20 @@ CREATE OR REPLACE FUNCTION check_reserved_components() RETURNS TRIGGER AS $$
 
                 -- блокировка всех резервов для этого заказа до конца транзакции
                 PERFORM 1
-                FROM Резерв_компонентов
+                FROM lab_drug_store.Резерв_компонентов
                 WHERE order_id = NEW.Order_id
                 FOR UPDATE;
 
                 -- перебор компонентов из рецептуры
                 FOR component IN
                     SELECT r.Компоненты AS component_id, r.Количество AS required_amount
-                    FROM Рецептуры AS r
+                    FROM lab_drug_store.Рецептуры AS r
                     WHERE r.Технологическая_карта = v_technology_id
 
                     LOOP
                         -- сумма зарезервированных компонентов для данного заказа
                         SELECT COALESCE(SUM(quantity_reserved), 0) INTO reserved_amount
-                        FROM Резерв_компонентов
+                        FROM lab_drug_store.Резерв_компонентов
                         WHERE order_id = NEW.Order_id AND component_id = component.component_id;
 
                         IF reserved_amount < component.required_amount THEN
@@ -295,7 +295,7 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
             -- блокировка резервов для конкретного заказа чтобы их нельхя было менять прараллельно
             FOR reservation IN
                 SELECT component_id, quantity_reserved
-                FROM Резерв_компонентов
+                FROM lab_drug_store.Резерв_компонентов
                 WHERE order_id = NEW.Order_id
                 FOR UPDATE
 
@@ -306,7 +306,7 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
                     -- заблокировать все подходящие партии компонента
                     FOR batch IN
                         SELECT batch_id, Quantity
-                        FROM Партии_компонентов
+                        FROM lab_drug_store.Партии_компонентов
                         WHERE component_id = reservation.component_id AND Quantity > 0
                         ORDER BY receipt_date
                         FOR UPDATE
@@ -318,13 +318,13 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
 
                             IF batch.Quantity >= remaining THEN
                                 -- партия покрывает остаток
-                                UPDATE Партии_компонентов
+                                UPDATE lab_drug_store.Партии_компонентов
                                 SET Quantity = Quantity - remaining
                                 WHERE batch_id = batch.batch_id;
                                 remaining := 0;
                             ELSE
                                 -- списать всю партию
-                                UPDATE Партии_компонентов
+                                UPDATE lab_drug_store.Партии_компонентов
                                 SET Quantity = 0
                                 WHERE batch_id = batch.batch_id;
                                 remaining := remaining - batch.Quantity;
@@ -339,7 +339,7 @@ CREATE OR REPLACE FUNCTION consume_reserved_components() RETURNS TRIGGER AS $$
                 END LOOP;
 
             -- после успешного списания удаляю резервы по заказу
-            DELETE FROM Резерв_компонентов WHERE order_id = NEW.Order_id;
+            DELETE FROM lab_drug_store.Резерв_компонентов WHERE order_id = NEW.Order_id;
         END IF;
 
         RETURN NEW;
