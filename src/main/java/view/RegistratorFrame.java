@@ -337,9 +337,9 @@ public class RegistratorFrame extends JFrame {
             try {
                 orderController.updateOrderStatus(orderId, newStatus);
                 refreshOrdersTable();
-                JOptionPane.showMessageDialog(this, "Статус изменен на " + newStatus);
+                JOptionPane.showMessageDialog(this, "Статус заказа изменен на '" + newStatus + "'");
             } catch (SQLException e) {
-                JOptionPane.showMessageDialog(this, "Ошибка обновления статуса: " + e.getMessage());
+                JOptionPane.showMessageDialog(this, "Ошибка обновления статуса заказа: " + e.getMessage());
             }
         }
     }
@@ -609,6 +609,7 @@ public class RegistratorFrame extends JFrame {
             String nameSearch = nameSearchField.getText().trim();
             String type = (String) typeCombo.getSelectedItem();
             String sort = (String) sortCombo.getSelectedItem();
+
             refreshWaitingCustomersTable(model, nameSearch, type, sort);
         };
 

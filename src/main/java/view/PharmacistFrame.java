@@ -150,7 +150,7 @@ public class PharmacistFrame extends JFrame {
             try {
                 orderController.updateOrderStatus(orderId, newStatus);
                 refreshOrdersTable();
-                JOptionPane.showMessageDialog(this, "Статус изменён на " + newStatus);
+                JOptionPane.showMessageDialog(this, "Статус заказа изменен на '" + newStatus + "'");
             } catch (SQLException e) {
                 if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
                     int option = JOptionPane.showConfirmDialog(this,
