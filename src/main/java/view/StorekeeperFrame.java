@@ -24,6 +24,8 @@ public class StorekeeperFrame extends JFrame {
     private MedicineRequestController medicineRequestController;
     private ReadyMedicineStockController readyMedicineStockController;
     private MedicineController medicineController;
+    private DefaultTableModel requestsTableModel;
+    private DefaultTableModel batchesTableModel;
 
     public StorekeeperFrame(Connection connection) {
         this.connection = connection;
@@ -34,6 +36,8 @@ public class StorekeeperFrame extends JFrame {
         this.medicineRequestController = new MedicineRequestController(connection);
         this.readyMedicineStockController = new ReadyMedicineStockController(connection);
         this.medicineController = new MedicineController(connection);
+        this.requestsTableModel = new DefaultTableModel();
+        this.batchesTableModel = new DefaultTableModel();
 
         setTitle("Аптека - Кладовщик");
         setResizable(false);
@@ -96,15 +100,15 @@ public class StorekeeperFrame extends JFrame {
     // --------------------------------------------------------------------------- вкладка "Партии компонентов" (просмотр, вставка)
     private JPanel createBatchesPanel() {
         JPanel panel = new JPanel(new BorderLayout());
-        DefaultTableModel model = new DefaultTableModel(new String[]{"ID партии", "ID компонента", "Дата поступления",
+        batchesTableModel = new DefaultTableModel(new String[]{"ID партии", "ID компонента", "Дата поступления",
                 "Количество", "ID заявки"}, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
                 return false;
             }
         };
-        JTable table = new JTable(model);
-        refreshBatchesTable(model);
+        JTable table = new JTable(batchesTableModel);
+        refreshBatchesTable(batchesTableModel);
 
         JButton addButton = new JButton("Добавить партию");
         JButton updateButton = new JButton("Изменить количество");
@@ -113,15 +117,7 @@ public class StorekeeperFrame extends JFrame {
         btnPanel.add(updateButton);
 
         addButton.addActionListener(e -> {
-            try {
-                showAddBatchDialog(model);
-            } catch (SQLException ex) {
-                JOptionPane.showMessageDialog(this,
-                        "Не удалось подготовить форму для добавления партии: " + ex.getMessage() +
-                                "\nПожалуйста попробуйте еще раз.",
-                        "Ошибка", JOptionPane.ERROR_MESSAGE);
-                ex.printStackTrace();
-            }
+            showAddBatchDialog(batchesTableModel);
         });
 
         updateButton.addActionListener(e -> {
@@ -131,15 +127,15 @@ public class StorekeeperFrame extends JFrame {
                 return;
             }
 
-            int batchId = (int) model.getValueAt(selectedRow, 0);
-            double currentQty = (double) model.getValueAt(selectedRow, 3);
+            int batchId = (int) batchesTableModel.getValueAt(selectedRow, 0);
+            double currentQty = (double) batchesTableModel.getValueAt(selectedRow, 3);
             String input = JOptionPane.showInputDialog(this, "Новое количество:", currentQty);
             if (input != null) {
                 try {
                     double newQty = Double.parseDouble(input);
                     batchController.updateBatchQuantity(batchId, newQty);
 
-                    refreshBatchesTable(model);
+                    refreshBatchesTable(batchesTableModel);
                     JOptionPane.showMessageDialog(this, "Количество компонентов партии обновлено");
                 } catch (NumberFormatException ex) {
                     JOptionPane.showMessageDialog(this, "Неверный формат числа");
@@ -211,13 +207,33 @@ public class StorekeeperFrame extends JFrame {
         }
     }
 
-    private void showAddBatchDialog(DefaultTableModel model) throws SQLException {
+    private static class RequestItem {
+        int id; String desc;
+        RequestItem(int id, String desc) { this.id = id; this.desc = desc; }
+        int getId() { return id; }
+        @Override public String toString() { return desc; }
+    }
+
+    private void loadRequestsToCombo(JComboBox<RequestItem> combo, int componentId) throws SQLException {
+        combo.removeAllItems();
+        String sql = "SELECT Component_request_id, Status FROM lab_drug_store.Заявки_на_пополнение_компонентов " +
+                "WHERE Component_id = ? AND Status IN ('новая', 'отправлена') ORDER BY Component_request_id";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, componentId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                combo.addItem(new RequestItem(rs.getInt("Component_request_id"),
+                        rs.getInt("Component_request_id") + " (" + rs.getString("Status") + ")"));
+            }
+            combo.setEnabled(combo.getItemCount() > 0);
+        }
+    }
+
+    private void showAddBatchDialog(DefaultTableModel model) {
         int nextId;
         try {
             String idSql = "SELECT COALESCE(MAX(Batch_id), 0) + 1 FROM lab_drug_store.Партии_компонентов";
-
-            try (Statement st = connection.createStatement();
-                 ResultSet rs = st.executeQuery(idSql)) {
+            try (Statement st = connection.createStatement(); ResultSet rs = st.executeQuery(idSql)) {
                 nextId = rs.next() ? rs.getInt(1) : 1;
             }
         } catch (SQLException e) {
@@ -227,36 +243,11 @@ public class StorekeeperFrame extends JFrame {
                         "Ошибка", JOptionPane.YES_NO_OPTION);
                 if (option == JOptionPane.YES_OPTION) reLogin();
             } else {
-                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
+                JOptionPane.showMessageDialog(this, "Ошибка получения следующего ID партии: " + e.getMessage());
             }
-
             return;
         }
 
-        JTextField componentIdField = new JTextField(10);
-        JTextField receiptDateField = new JTextField(10);
-        JTextField quantityField = new JTextField(10);
-        JTextField requestIdField = new JTextField(10);
-
-        JPanel panel = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(5, 5, 5, 5);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-
-        gbc.gridwidth = 2;
-        gbc.gridx = 0; gbc.gridy = 0;
-        JLabel idLabel = new JLabel("ID новой партии компонентов: " + nextId);
-        panel.add(idLabel, gbc);
-
-//        gbc.gridwidth = 1;
-//        gbc.gridy = 1; gbc.gridx = 0;
-//        panel.add(new JLabel("ID компонента:"), gbc);
-//        gbc.gridx = 1;
-//        panel.add(componentIdField, gbc);
-
-        gbc.gridwidth = 1;
-        gbc.gridy = 1; gbc.gridx = 0;
-        panel.add(new JLabel("Компонент:"), gbc);
         JComboBox<ComponentItem> componentCombo = new JComboBox<>();
         try {
             loadComponentsToCombo(componentCombo);
@@ -267,59 +258,87 @@ public class StorekeeperFrame extends JFrame {
                         "Ошибка", JOptionPane.YES_NO_OPTION);
                 if (option == JOptionPane.YES_OPTION) reLogin();
             } else {
-                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
+                JOptionPane.showMessageDialog(this, "Ошибка загрузки компонентов: " + e.getMessage());
             }
-
             return;
         }
+
+        JComboBox<RequestItem> requestCombo = new JComboBox<>();
+        requestCombo.setEnabled(false);
+        componentCombo.addActionListener(e -> {
+            ComponentItem selected = (ComponentItem) componentCombo.getSelectedItem();
+            if (selected != null) {
+                try {
+                    loadRequestsToCombo(requestCombo, selected.getId());
+                } catch (SQLException ex) {
+                    if (ex.getSQLState() != null && ex.getSQLState().startsWith("08")) {
+                        int option = JOptionPane.showConfirmDialog(StorekeeperFrame.this,
+                                "Соединение потеряно. Переподключиться?",
+                                "Ошибка", JOptionPane.YES_NO_OPTION);
+                        if (option == JOptionPane.YES_OPTION) reLogin();
+                    } else {
+                        JOptionPane.showMessageDialog(StorekeeperFrame.this, "Ошибка загрузки заявок: " + ex.getMessage());
+                    }
+                }
+            } else {
+                requestCombo.removeAllItems();
+                requestCombo.setEnabled(false);
+            }
+        });
+
+        JTextField receiptDateField = new JTextField(10);
+        JTextField quantityField = new JTextField(10);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridwidth = 2;
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("ID новой партии компонентов: " + nextId), gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy = 1; gbc.gridx = 0;
+        panel.add(new JLabel("Компонент:"), gbc);
         gbc.gridx = 1;
         panel.add(componentCombo, gbc);
 
         gbc.gridy = 2; gbc.gridx = 0;
+        panel.add(new JLabel("Заявка:"), gbc);
+        gbc.gridx = 1;
+        panel.add(requestCombo, gbc);
+
+        gbc.gridy = 3; gbc.gridx = 0;
         panel.add(new JLabel("Дата поступления (ГГГГ-ММ-ДД):"), gbc);
         gbc.gridx = 1;
         panel.add(receiptDateField, gbc);
 
-        gbc.gridy = 3; gbc.gridx = 0;
+        gbc.gridy = 4; gbc.gridx = 0;
         panel.add(new JLabel("Количество:"), gbc);
         gbc.gridx = 1;
         panel.add(quantityField, gbc);
-
-        gbc.gridy = 4; gbc.gridx = 0;
-        panel.add(new JLabel("ID заявки для компонента:"), gbc);
-        gbc.gridx = 1;
-        panel.add(requestIdField, gbc);
 
         int result = JOptionPane.showConfirmDialog(this, panel, "Новая партия компонентов",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
             try {
-                ComponentBatch batch = new ComponentBatch(
-                        nextId,
-                        Integer.parseInt(componentIdField.getText().trim()),
-                        Date.valueOf(receiptDateField.getText().trim()),
-                        Double.parseDouble(quantityField.getText().trim()),
-                        Integer.parseInt(requestIdField.getText().trim())
-                );
+                ComponentItem comp = (ComponentItem) componentCombo.getSelectedItem();
+                if (comp == null) throw new Exception("Не выбран компонент");
+                RequestItem req = (RequestItem) requestCombo.getSelectedItem();
+                if (req == null) throw new Exception("Не выбрана заявка");
+                int componentId = comp.getId();
+                int requestId = req.getId();
+                Date receiptDate = Date.valueOf(receiptDateField.getText().trim());
+                double quantity = Double.parseDouble(quantityField.getText().trim());
+
+                ComponentBatch batch = new ComponentBatch(nextId, componentId, receiptDate, quantity, requestId);
                 batchController.addBatch(batch);
-                refreshBatchesTable(model);
+                refreshBatchesTable(batchesTableModel); // обновить таблицу партий
+                refreshRequestsTable(requestsTableModel); // и запросов на комопненты
                 JOptionPane.showMessageDialog(this, "Партия компонентов добавлена");
-            } catch (NumberFormatException e) {
-                JOptionPane.showMessageDialog(this, "Ошибка в числовом формате: " + e.getMessage());
-            } catch (IllegalArgumentException e) {
-                JOptionPane.showMessageDialog(this, "Неверный формат даты. Используйте ГГГГ-ММ-ДД");
-            } catch (SQLException e) {
-                if (e.getSQLState() != null && e.getSQLState().startsWith("08")) {
-                    int option = JOptionPane.showConfirmDialog(this,
-                            "Соединение потеряно. Переподключиться?",
-                            "Ошибка", JOptionPane.YES_NO_OPTION);
-                    if (option == JOptionPane.YES_OPTION) reLogin();
-                } else {
-                    JOptionPane.showMessageDialog(this, "Ошибка добавления партии: " + e.getMessage());
-                }
             } catch (Exception e) {
-                JOptionPane.showMessageDialog(this, "Непредвиденная ошибка: " + e.getMessage());
-                e.printStackTrace();
+                JOptionPane.showMessageDialog(this, "Ошибка: " + e.getMessage());
             }
         }
     }
@@ -328,15 +347,15 @@ public class StorekeeperFrame extends JFrame {
     private JPanel createComponentRequestsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
 
-        DefaultTableModel model = new DefaultTableModel(new String[]{"ID заявки", "Компонент", "Количество",
-                "Статус", "Поставщик"}, 0) {
+        requestsTableModel = new DefaultTableModel(new String[]{"ID заявки", "Компонент", "Количество", "Статус",
+                "Поставщик"}, 0) {
             @Override
             public boolean isCellEditable(int row, int col) {
                 return false;
             }
         };
-        JTable table = new JTable(model);
-        refreshRequestsTable(model);
+        JTable table = new JTable(requestsTableModel);
+        refreshRequestsTable(requestsTableModel);
 
         JButton addButton = new JButton("Создать заявку");
         JButton statusButton = new JButton("Изменить статус");
@@ -344,7 +363,7 @@ public class StorekeeperFrame extends JFrame {
         btnPanel.add(addButton);
         btnPanel.add(statusButton);
 
-        addButton.addActionListener(e -> showAddRequestDialog(model));
+        addButton.addActionListener(e -> showAddRequestDialog(requestsTableModel));
 
         statusButton.addActionListener(e -> {
             int selectedRow = table.getSelectedRow();
@@ -353,9 +372,9 @@ public class StorekeeperFrame extends JFrame {
                 return;
             }
 
-            int requestId = (int) model.getValueAt(selectedRow, 0);
-            String currentStatus = (String) model.getValueAt(selectedRow, 3);
-            changeRequestStatus(requestId, currentStatus, model);
+            int requestId = (int) requestsTableModel.getValueAt(selectedRow, 0);
+            String currentStatus = (String) requestsTableModel.getValueAt(selectedRow, 3);
+            changeRequestStatus(requestId, currentStatus, requestsTableModel);
         });
 
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
