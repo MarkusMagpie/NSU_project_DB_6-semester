@@ -701,6 +701,37 @@ CREATE OR REPLACE TRIGGER trg_update_waiting_orders
     FOR EACH ROW
     EXECUTE FUNCTION update_waiting_orders();
 
+CREATE OR REPLACE FUNCTION update_request_status_on_batch() RETURNS TRIGGER AS $$
+DECLARE
+    total_quantity DECIMAL;
+    requested_quantity DECIMAL;
+BEGIN
+    IF NEW.Component_request_id IS NOT NULL THEN
+        -- требуемое количво компонента из заявки
+        SELECT Quantity INTO requested_quantity
+        FROM lab_drug_store.Заявки_на_пополнение_компонентов
+        WHERE Component_request_id = NEW.Component_request_id;
+
+        -- сумма всех компонентов из партий по этой заявке
+        SELECT COALESCE(SUM(Quantity), 0) INTO total_quantity
+        FROM lab_drug_store.Партии_компонентов
+        WHERE Component_request_id = NEW.Component_request_id;
+
+        IF total_quantity >= requested_quantity THEN
+            UPDATE lab_drug_store.Заявки_на_пополнение_компонентов
+            SET Status = 'получена'
+            WHERE Component_request_id = NEW.Component_request_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_request_status_on_batch
+    AFTER INSERT ON Партии_компонентов
+    FOR EACH ROW
+    EXECUTE FUNCTION update_request_status_on_batch();
+
 
 
 CREATE TABLE IF NOT EXISTS Рецептуры (
